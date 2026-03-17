@@ -49,17 +49,17 @@ namespace ImageIO {
 
         NativeBitmap& operator=(const NativeBitmap& nb);
 
-        Bitmap toBitmap(BitmapDepth outDepth, ColorSpace outColorSpace) const;
+        Bitmap toBitmap(SampleType outSampleType, ColorSpace outColorSpace) const;
     
     private:
-        // Depth Normalization
-        static void normalizeDepth(NativeBitmap &src, BitmapDepth outDepth);
+        // SampleType Normalization
+        static void normalizeDepth(NativeBitmap &src, SampleType outSampleType);
         static uint64_t readPackedSample(NativeBitmap &src, size_t index);
         static uint32_t bitReplicate(uint64_t val, uint8_t srcBits, uint8_t dstBits);
         static void writeSample(void *outputData, uint32_t value, uint8_t targetBits, size_t index);
         static void intToUint(NativeBitmap &src, size_t totalSamples);
 
-        static void normalizeColorSpace(NativeBitmap &src, ColorSpace outColorSpace);
+        static cmsHPROFILE normalizeColorSpace(NativeBitmap &src, ColorSpace outColorSpace);
         static cmsUInt32Number buildLcmsFormatter(NativeBitmap &src);
     };
 }

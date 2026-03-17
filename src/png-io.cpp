@@ -169,8 +169,8 @@ namespace ImageIO {
 
     void savePNG(const char *filename, const Bitmap &bitmap, Properties props) {
         const Bitmap* bmpPtr = &bitmap;
-        if (bitmap.depth != BitmapDepth::U8) {
-            bmpPtr = bitmap.convertDepth(BitmapDepth::U16);
+        if (bitmap.depth != SampleType::U8) {
+            bmpPtr = bitmap.convertDepth(SampleType::U16);
         }
 
         png_image image;
@@ -187,7 +187,7 @@ namespace ImageIO {
         if (bmpPtr->colorSpace == BitmapColorSpace::RGBA) {
             image.format |= PNG_FORMAT_FLAG_ALPHA;
         }
-        if (bmpPtr->depth != BitmapDepth::U8) {
+        if (bmpPtr->depth != SampleType::U8) {
             image.format |= PNG_FORMAT_FLAG_LINEAR;
 
             // double gamma = 2.2;

@@ -99,23 +99,29 @@ namespace ImageIO {
         return *this;
     }
 
-    Bitmap NativeBitmap::toBitmap(BitmapDepth outDepth, ColorSpace outColorSpace) const 
+    Bitmap NativeBitmap::toBitmap(SampleType outSampleType, ColorSpace outColorSpace) const 
     {
         if (colorSpace == NativeColorSpace::Unknown) {
             throw std::runtime_error("Converting can not be performed with an unknown color space");
         }
+        if (iccProfile == nullptr || iccProfileSize == 0) {
+            throw std::runtime_error("Converting can not be performed without icc profile");
+        }
 
         NativeBitmap temp = *this;
-        normalizeDepth(temp, outDepth);
+        normalizeDepth(temp, outSampleType);
 
-        normalizeColorSpace(temp, outColorSpace);
+        auto profile = normalizeColorSpace(temp, outColorSpace);
+
+        auto dataPtr = temp.data;
+        temp.data = nullptr;
         
-        return Bitmap(1, 1, nullptr, BitmapColorSpace::RGB, BitmapDepth::U8, BitmapColorProfile::sRGB_2_2, nullptr);
+        return Bitmap(width, height, dataPtr, outSampleType, outColorSpace, profile);
     }
     
-    // Depth Normalization
-    void NativeBitmap::normalizeDepth(NativeBitmap &src, BitmapDepth outDepth) {
-        uint8_t targetBytes = Bitmap::getBytesPerSample(outDepth);
+    // SampleType Normalization
+    void NativeBitmap::normalizeDepth(NativeBitmap &src, SampleType outSampleType) {
+        uint8_t targetBytes = Bitmap::getBytesPerSample(outSampleType);
         uint8_t targetBits = targetBytes * 8;
         size_t totalSamples = src.width * src.height * src.samplesPerPixel;
 
@@ -210,7 +216,7 @@ namespace ImageIO {
     }
 
     // Color Space Normalization
-    void NativeBitmap::normalizeColorSpace(NativeBitmap &src, ColorSpace outColorSpace) {
+    cmsHPROFILE NativeBitmap::normalizeColorSpace(NativeBitmap &src, ColorSpace outColorSpace) {
         uint32_t bytesPerSample = src.bitsPerSample / 8;
         bool isFloat = src.sampleFormat == SampleFormat::Float;
 
@@ -227,10 +233,11 @@ namespace ImageIO {
         );
 
         size_t size = src.width * src.height;
-        if ((size_t)outColorSpace.channels == src.samplesPerPixel) {
+        size_t outSamplesPerPixel = (size_t)outColorSpace.channels;
+        if (outSamplesPerPixel == src.samplesPerPixel) {
             cmsDoTransform(t, src.data, src.data, size);
         } else {
-            size_t newDataSize = size * bytesPerSample * src.samplesPerPixel;        
+            size_t newDataSize = size * bytesPerSample * outSamplesPerPixel;        
             auto newData = new uint8_t[newDataSize]();
             cmsDoTransform(t, src.data, newData, size);
             delete [] src.data;
@@ -239,7 +246,8 @@ namespace ImageIO {
         }
         cmsDeleteTransform(t);
         cmsCloseProfile(inProfile);
-        cmsCloseProfile(outProfile);
+
+        return outProfile;
     }
     cmsUInt32Number NativeBitmap::buildLcmsFormatter(NativeBitmap &src) {
         cmsUInt32Number colorSpaceFlag = 0;

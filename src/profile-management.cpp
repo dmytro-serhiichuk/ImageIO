@@ -10,12 +10,4 @@ namespace ImageIO {
         free(buffer);
         return dst;
     }
-
-    cmsHPROFILE getCmsHPROFILE(BitmapColorProfile colorProfile) {
-        if (colorProfile == BitmapColorProfile::sRGB_2_2) {
-            return cmsCreate_sRGBProfile();
-        }
-
-        throw std::runtime_error("Unsupported color profile");
-    }
 }

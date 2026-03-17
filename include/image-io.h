@@ -24,13 +24,12 @@ namespace ImageIO {
     NativeBitmap openNative(const char* filename);
 
     /// @brief Opens image from file and recognizes the image type 
-    /// @param colorSpace Color space of output bitmap
-    /// @param depth Color depth of output bitmap 
-    /// @return New Bitmap or nullptr if input image type is not supported    
-    Bitmap* open(const char* filename, 
-        BitmapColorSpace colorSpace = BitmapColorSpace::RGB, 
-        BitmapDepth depth = BitmapDepth::U8, 
-        BitmapColorProfile colorProfile = BitmapColorProfile::sRGB_2_2, 
+    /// @param sampleType Sample type and depth of output bitmap 
+    /// @param colorSpace Color space and color profile of output bitmap
+    /// @return New instance of Bitmap    
+    Bitmap open(const char* filename, 
+        SampleType sampleType = SampleType::U8, 
+        ColorSpace colorSpace = ColorSpace::sRGB(), 
         Properties props = {}
     );
 

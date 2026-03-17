@@ -98,7 +98,7 @@ namespace ImageIO {
     }
 
     void saveJPEG(const char* filename, const Bitmap &bitmap, Properties props) {
-        Bitmap* convertedBitmap = bitmap.convertDepth(BitmapDepth::U8);
+        Bitmap convertedBitmap = bitmap.convertSampleType(SampleType::U8);
 
         size_t jpegSize = 0;
         uint8_t* jpegBuf = nullptr;
@@ -111,25 +111,24 @@ namespace ImageIO {
         jpegSize = 0;
         jpegBuf = nullptr;
 
-        int pixelFormat = convertedBitmap->colorSpace == BitmapColorSpace::RGB ? TJPF_RGB :
-                          convertedBitmap->colorSpace == BitmapColorSpace::RGBA ? TJPF_RGBA :
+        int pixelFormat = convertedBitmap.colorSpace.channels == Channels::RGB ? TJPF_RGB :
+                          convertedBitmap.colorSpace.channels == Channels::RGBA ? TJPF_RGBA :
                           TJPF_GRAY;
 
-        int subsamp = (convertedBitmap->colorSpace == BitmapColorSpace::RGB || 
-                      convertedBitmap->colorSpace == BitmapColorSpace::RGBA) 
+        int subsamp = (convertedBitmap.colorSpace.channels == Channels::RGB || 
+                      convertedBitmap.colorSpace.channels == Channels::RGBA) 
                       ? TJSAMP_444 
                       : TJSAMP_GRAY;
-        uint8_t* buffer = convertedBitmap->ptr<uint8_t>();
+        uint8_t* buffer = convertedBitmap.ptr<uint8_t>();
 
         tj3Set(jpegCompressor, TJPARAM_QUALITY, props.jpegQuality);
         tj3Set(jpegCompressor, TJPARAM_SUBSAMP , subsamp);
 
-        auto profile = convertedBitmap->getICCProfile();
+        auto profile = convertedBitmap.getICCProfile();
         tj3SetICCProfile(jpegCompressor, profile.data(), profile.size());
 
-        if (tj3Compress8(jpegCompressor, buffer, convertedBitmap->width, 0, convertedBitmap->height, pixelFormat, &jpegBuf, &jpegSize) < 0) {
+        if (tj3Compress8(jpegCompressor, buffer, convertedBitmap.width, 0, convertedBitmap.height, pixelFormat, &jpegBuf, &jpegSize) < 0) {
             tj3Destroy(jpegCompressor);
-            delete convertedBitmap;
             throw std::runtime_error("Failed to compress jpeg");
         }
 
@@ -140,7 +139,5 @@ namespace ImageIO {
         fclose(file);
 
         tj3Free(jpegBuf);
-
-        delete convertedBitmap;
     }
 }

@@ -439,7 +439,7 @@ namespace ImageIO {
         // Bitmap* bitmap = new Bitmap(
         //     width, height, data, 
         //     decodedColorSpace, 
-        //     bytesPerSample == 1 ? BitmapDepth::U8 : BitmapDepth::U16,
+        //     bytesPerSample == 1 ? SampleType::U8 : SampleType::U16,
         //     colorProfile,
         //     cmsCreate_sRGBProfile()
         // );
@@ -458,7 +458,7 @@ namespace ImageIO {
 
         const Bitmap* bmpPtr = &bitmap;
         if (bitmap.getBytesPerSample(bitmap.depth) > 2) {
-            bmpPtr = bitmap.convertDepth(BitmapDepth::U16);
+            bmpPtr = bitmap.convertDepth(SampleType::U16);
         }
 
         uint16_t samplesPerPixel = bitmap.colorSpace == BitmapColorSpace::Grayscale ? 1 : 

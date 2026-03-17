@@ -76,29 +76,13 @@ namespace ImageIO {
         return nativeBitmap;
     }
 
-    Bitmap *open(const char *filename, BitmapColorSpace colorSpace, BitmapDepth depth, BitmapColorProfile colorProfile, Properties props)
-    {
-        Format format = getFormat(filename);
+    Bitmap open(const char *filename, SampleType sampleType, ColorSpace colorSpace, Properties props) {
+        auto native = openNative(filename);
 
-        NativeBitmap nativeBitmap {};
- 
-        if (format == Format::JPG) {
-            nativeBitmap = loadJPEG(filename);
-        }
-        else if (format == Format::PNG) {
-            nativeBitmap = loadPNG(filename);
-        }
-        else if (format == Format::RAW) {
-            nativeBitmap = loadRAW(filename);
-        }
-        else if (format == Format::TIFF) {
-            nativeBitmap = loadTIFF(filename);
-        }
-
-        return nullptr;
+        return native.toBitmap(sampleType, colorSpace);        
     }
 
-    void ImageIO::save(const char *filename, Bitmap &bitmap, Properties props) {
+    void save(const char *filename, Bitmap &bitmap, Properties props) {
         std::string ext = getFileExtension(filename);
         
         if (ext == "jpg" || ext == "jpeg") {

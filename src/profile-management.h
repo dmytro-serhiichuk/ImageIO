@@ -6,7 +6,6 @@
 
 namespace ImageIO {
     cmsHPROFILE cloneProfile(cmsHPROFILE srcProfile);
-    cmsHPROFILE getCmsHPROFILE(BitmapColorProfile colorProfile);
 }
 
 #endif
