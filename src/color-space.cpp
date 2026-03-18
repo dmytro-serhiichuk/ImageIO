@@ -59,6 +59,9 @@ namespace ImageIO {
             case TransferFunction::Linear:
                 curve = cmsBuildGamma(nullptr, 1.0);
                 break;
+            case TransferFunction::Gamma_2_2:
+                curve = cmsBuildGamma(nullptr, 2.19921875);
+                break;
             case TransferFunction::sRGB: {
                 cmsFloat64Number p[7] = {
                     2.4,              // γ

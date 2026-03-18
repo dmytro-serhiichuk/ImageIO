@@ -23,6 +23,7 @@ namespace ImageIO {
         Linear,
         sRGB,
         Gamma_1_8,
+        Gamma_2_2
     };
 
     struct ColorSpace {
@@ -42,6 +43,13 @@ namespace ImageIO {
         }
         static ColorSpace sRGBA_Linear() {
             return { Channels::RGBA, ColorGamut::sRGB, TransferFunction::Linear };
+        }
+
+        static ColorSpace AdobeRGB() {
+            return { Channels::RGB, ColorGamut::AdobeRGB, TransferFunction::Gamma_2_2 };
+        }
+        static ColorSpace AdobeRGBA() {
+            return { Channels::RGBA, ColorGamut::AdobeRGB, TransferFunction::Gamma_2_2 };
         }
 
         static ColorSpace ProPhoto() {
