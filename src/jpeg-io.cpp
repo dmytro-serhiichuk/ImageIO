@@ -28,6 +28,34 @@ namespace ImageIO {
             icc = new uint8_t[iccSize]();
             cmsSaveProfileToMem(profile, icc, &iccSize);
         }
+
+        int getPixelFormat(const Channels channels) {
+            switch (channels) {
+                case Channels::RGB:
+                    return TJPF_RGB;
+                case Channels::RGBA:
+                    return TJPF_RGBA;
+                case Channels::Grayscale:
+                    return TJPF_GRAY;
+                case Channels::GrayscaleAlpha:
+                    return TJPF_GRAY;
+                default:
+                    throw std::runtime_error("JPG: Invalid channels configuration");
+            }
+        }
+
+        int getSubSamp(const Channels channels) {
+            switch (channels) {
+                case Channels::RGB:
+                case Channels::RGBA:
+                    return TJSAMP_444;
+                case Channels::Grayscale:
+                case Channels::GrayscaleAlpha:
+                    return TJSAMP_GRAY;
+                default:
+                    throw std::runtime_error("JPG: Invalid channels configuration");
+            }
+        }
     }
     
     NativeBitmap loadJPEG(const char* filename) {
@@ -111,15 +139,10 @@ namespace ImageIO {
         jpegSize = 0;
         jpegBuf = nullptr;
 
-        int pixelFormat = convertedBitmap.colorSpace.channels == Channels::RGB ? TJPF_RGB :
-                          convertedBitmap.colorSpace.channels == Channels::RGBA ? TJPF_RGBA :
-                          TJPF_GRAY;
+        int pixelFormat = getPixelFormat(convertedBitmap.colorSpace.channels);
+        int subsamp = getSubSamp(convertedBitmap.colorSpace.channels);
 
-        int subsamp = (convertedBitmap.colorSpace.channels == Channels::RGB || 
-                      convertedBitmap.colorSpace.channels == Channels::RGBA) 
-                      ? TJSAMP_444 
-                      : TJSAMP_GRAY;
-        uint8_t* buffer = convertedBitmap.ptr<uint8_t>();
+        auto buffer = convertedBitmap.ptr<uint8_t>();
 
         tj3Set(jpegCompressor, TJPARAM_QUALITY, props.jpegQuality);
         tj3Set(jpegCompressor, TJPARAM_SUBSAMP , subsamp);

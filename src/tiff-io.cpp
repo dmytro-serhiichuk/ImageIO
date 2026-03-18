@@ -207,6 +207,38 @@ namespace ImageIO {
                     for (int s = 0; s < alphaIdx; ++s) px[s] /= a;
             }
         }
+    
+        struct SampleInfo {
+            uint16_t bitsPerSample = 0;
+            uint16_t sampleFormat  = 0;
+        };
+
+        inline SampleInfo getSampleInfo(const SampleType sampleType) {
+            switch (sampleType) {
+                case SampleType::U8:  return { 8, SAMPLEFORMAT_UINT };
+                case SampleType::U16: return { 16, SAMPLEFORMAT_UINT };
+                case SampleType::U32: return { 32, SAMPLEFORMAT_UINT };
+                case SampleType::F32: return { 32, SAMPLEFORMAT_IEEEFP };
+                default: return { 0, 0 };
+            }
+        }
+
+        struct ColorInfo {
+            uint16_t samplesPerPixel    = 0;
+            uint16_t photometric        = 0;
+            uint16_t extraSamplesCount  = 0;
+            uint16_t extraSampleType    = EXTRASAMPLE_UNASSALPHA;
+        };
+
+        inline ColorInfo getColorInfo(const Channels channels) {
+            switch (channels) {
+                case Channels::RGB:            return { 3, PHOTOMETRIC_RGB, 0 };
+                case Channels::RGBA:           return { 4, PHOTOMETRIC_RGB, 1 };
+                case Channels::Grayscale:      return { 1, PHOTOMETRIC_MINISBLACK, 0 };
+                case Channels::GrayscaleAlpha: return { 2, PHOTOMETRIC_MINISBLACK, 1 };
+                default: return { 0, 0, 0 };
+            }
+        }
     }
 
     NativeBitmap loadTIFF(const char* filename) {
@@ -306,7 +338,7 @@ namespace ImageIO {
                 } 
                 default: { // rgb
                     auto profile = cmsCreate_sRGBProfile();
-                    writeProfileToMem(profile, icc, iccSize);
+                    writeProfileToMem(profile, bm.iccProfile, bm.iccProfileSize);
                     cmsCloseProfile(profile);
                     break;
                 }
@@ -372,130 +404,62 @@ namespace ImageIO {
         }
 
         return bm;
-        // tsize_t scanlineSize = TIFFScanlineSize(tiff);
-        // uint8_t* scanline = new uint8_t[scanlineSize]();
-            
-        // size_t bytesPerSample = bitsPerSample / 8;
-        // uint8_t* data = new uint8_t[width * height * bytesPerSample * samplesPerPixel];
-
-        // for (uint32_t row = 0; row < height; row++) {
-        //     if (TIFFReadScanline(tiff, scanline, row) < 0) {
-        //         TIFFClose(tiff);
-        //         delete [] scanline;
-        //         delete [] data;
-        //         throw std::runtime_error("Failed read scanline");
-        //     }
-            
-        //     for (uint32_t col = 0; col < width; col++) {
-        //         size_t dataIndex = (row * width + col) * samplesPerPixel;
-        //         size_t scanlineIndex = col * samplesPerPixel;
-
-        //         if (bytesPerSample == 1) {
-        //             if (samplesPerPixel == 1) {
-        //                 data[dataIndex] = scanline[scanlineIndex];
-        //             }
-        //             else if (samplesPerPixel == 3) {
-        //                 data[dataIndex] = scanline[scanlineIndex];
-        //                 data[dataIndex + 1] = scanline[scanlineIndex + 1];
-        //                 data[dataIndex + 2] = scanline[scanlineIndex + 2];
-        //             }
-        //             else if (samplesPerPixel == 4) {
-        //                 data[dataIndex] = scanline[scanlineIndex];
-        //                 data[dataIndex + 1] = scanline[scanlineIndex + 1];
-        //                 data[dataIndex + 2] = scanline[scanlineIndex + 2];
-        //                 data[dataIndex + 3] = scanline[scanlineIndex + 3];
-        //             }
-        //         }
-        //         else {
-        //             uint16_t* data16 = (uint16_t*)data;
-        //             uint16_t* scanline16 = (uint16_t*)scanline;
-
-        //             if (samplesPerPixel == 1) {
-        //                 data16[dataIndex] = scanline16[scanlineIndex];
-        //             }
-        //             else if (samplesPerPixel == 3) {
-        //                 data16[dataIndex] = scanline16[scanlineIndex];
-        //                 data16[dataIndex + 1] = scanline16[scanlineIndex + 1];
-        //                 data16[dataIndex + 2] = scanline16[scanlineIndex + 2];
-        //             }
-        //             else if (samplesPerPixel == 4) {
-        //                 data16[dataIndex] = scanline16[scanlineIndex];
-        //                 data16[dataIndex + 1] = scanline16[scanlineIndex + 1];
-        //                 data16[dataIndex + 2] = scanline16[scanlineIndex + 2];
-        //                 data16[dataIndex + 3] = scanline16[scanlineIndex + 3];
-        //             }
-        //         }
-        //     }
-        // }
-
-        // TIFFClose(tiff);
-        // delete [] scanline;
-
-        // BitmapColorSpace decodedColorSpace = 
-        //     samplesPerPixel == 1 ? BitmapColorSpace::Grayscale :
-        //     samplesPerPixel == 3 ? BitmapColorSpace::RGB :
-        //     BitmapColorSpace::RGBA;
-
-        // Bitmap* bitmap = new Bitmap(
-        //     width, height, data, 
-        //     decodedColorSpace, 
-        //     bytesPerSample == 1 ? SampleType::U8 : SampleType::U16,
-        //     colorProfile,
-        //     cmsCreate_sRGBProfile()
-        // );
-        // if (bitmap->depth != depth || bitmap->colorSpace != colorSpace) {
-        //     Bitmap* temp = bitmap->convertTo(depth, colorSpace);
-        //     delete bitmap;
-        //     bitmap = temp;
-        // }
     }
 
     void saveTIFF(const char* filename, const Bitmap &bitmap, Properties props) {
-        TIFF* tiff = TIFFOpen(filename, "bm.width");
+        TIFF* tiff = TIFFOpen(filename, "w");
         if (!tiff) {
-            throw std::runtime_error("Failed to open file");
+            throw std::runtime_error("TIFF: cannot open file: " + std::string(filename));
         }
 
-        const Bitmap* bmpPtr = &bitmap;
-        if (bitmap.getBytesPerSample(bitmap.depth) > 2) {
-            bmpPtr = bitmap.convertDepth(SampleType::U16);
+        const SampleInfo sampleInfo = getSampleInfo(bitmap.sampleType);
+        if (sampleInfo.bitsPerSample == 0 || sampleInfo.sampleFormat == 0) {
+            TIFFClose(tiff);
+            throw std::runtime_error("TIFF: unsupported SampleType");
         }
 
-        uint16_t samplesPerPixel = bitmap.colorSpace == BitmapColorSpace::Grayscale ? 1 : 
-                                   bitmap.colorSpace == BitmapColorSpace::RGB ? 3 :
-                                   4;
+        const ColorInfo colorInfo = getColorInfo(bitmap.colorSpace.channels);
+        if (colorInfo.samplesPerPixel == 0) {
+            TIFFClose(tiff);
+            throw std::runtime_error("TIFF: unsupported channel layout");
+        }
 
-        uint16_t depthSize = bmpPtr->getBytesPerSample(bmpPtr->depth);
-        uint16_t bitsPerSample = depthSize * 8;
-
-        TIFFSetField(tiff, TIFFTAG_IMAGEWIDTH,      bmpPtr->width);
-        TIFFSetField(tiff, TIFFTAG_IMAGELENGTH,     bmpPtr->height);
-        TIFFSetField(tiff, TIFFTAG_SAMPLESPERPIXEL, samplesPerPixel);
-        TIFFSetField(tiff, TIFFTAG_BITSPERSAMPLE,   bitsPerSample);
+        TIFFSetField(tiff, TIFFTAG_IMAGEWIDTH,      bitmap.width);
+        TIFFSetField(tiff, TIFFTAG_IMAGELENGTH,     bitmap.height);
+        TIFFSetField(tiff, TIFFTAG_BITSPERSAMPLE,   sampleInfo.bitsPerSample);
+        TIFFSetField(tiff, TIFFTAG_SAMPLESPERPIXEL, colorInfo.samplesPerPixel);
+        TIFFSetField(tiff, TIFFTAG_SAMPLEFORMAT,    sampleInfo.sampleFormat);
+        TIFFSetField(tiff, TIFFTAG_PHOTOMETRIC,     colorInfo.photometric);
         TIFFSetField(tiff, TIFFTAG_ORIENTATION,     ORIENTATION_TOPLEFT);
         TIFFSetField(tiff, TIFFTAG_PLANARCONFIG,    PLANARCONFIG_CONTIG);
+        TIFFSetField(tiff, TIFFTAG_COMPRESSION,     COMPRESSION_NONE);
 
-        uint16_t photometric = (samplesPerPixel == 1
-                            ? PHOTOMETRIC_MINISBLACK
-                            : PHOTOMETRIC_RGB);
-        TIFFSetField(tiff, TIFFTAG_PHOTOMETRIC, photometric);
-
-        if (samplesPerPixel == 4) {
-            uint16_t extraSamples = EXTRASAMPLE_ASSOCALPHA;
-            TIFFSetField(tiff, TIFFTAG_EXTRASAMPLES, 1, &extraSamples);
+        if (colorInfo.extraSamplesCount > 0) {
+            TIFFSetField(
+                tiff, TIFFTAG_EXTRASAMPLES, 
+                colorInfo.extraSamplesCount, 
+                &colorInfo.extraSampleType
+            );
         }
 
-        uint8_t* ptr = bmpPtr->ptr<uint8_t>();
-        for (uint32_t row = 0; row < bmpPtr->height; row++) {
-            if (TIFFWriteScanline(tiff, ptr + row * bmpPtr->stride * depthSize, row, 0) < 0) {
+        auto icc = bitmap.getICCProfile();
+        TIFFSetField(
+            tiff, TIFFTAG_ICCPROFILE, 
+            static_cast<uint32_t>(icc.size()), icc.data()
+        );
+
+        uint8_t* bufPtr  = bitmap.ptr<uint8_t>();
+        size_t   rowStep = static_cast<size_t>(bitmap.stride);
+
+        for (uint32_t y = 0; y < bitmap.height; ++y) {
+            uint8_t* row = bufPtr + y * rowStep;
+
+            if (TIFFWriteScanline(tiff, row, y, 0) < 0) {
                 TIFFClose(tiff);
-                if (bmpPtr != &bitmap) delete bmpPtr;
-                throw std::runtime_error("Failed to write tiff");
+                throw std::runtime_error("TIFF: TIFFWriteScanline failed");
             }
         }
 
         TIFFClose(tiff);
-
-        if (bmpPtr != &bitmap) delete bmpPtr;
     }
 }

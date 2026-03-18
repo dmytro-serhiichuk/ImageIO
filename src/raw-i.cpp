@@ -23,7 +23,8 @@ namespace ImageIO {
             cmsCIExyY d65;
             cmsWhitePointFromTemp(&d65, 6504.0);
             
-            cmsHPROFILE h = cmsCreateRGBProfile(&d65, &colorants, curves);
+            // cmsHPROFILE h = cmsCreateRGBProfile(&d65, &colorants, curves);
+            cmsHPROFILE h = cmsCreate_sRGBProfile();
             cmsFreeToneCurve(lin);
             writeProfileToMem(h, icc, iccSize);
             cmsCloseProfile(h);
@@ -41,14 +42,14 @@ namespace ImageIO {
         return false;
     }
 
-    NativeBitmap loadRAW(const char *file)
-    {
+    NativeBitmap loadRAW(const char *file) {
         LibRaw processor;
         if (processor.open_file(file) != LIBRAW_SUCCESS) {
             processor.recycle();
             throw std::runtime_error("RAW: Cannot open input file");
         }
         
+        // TODO: fix color
         processor.imgdata.params.output_bps = 16;
         processor.imgdata.params.use_camera_wb = 1;
         processor.imgdata.params.use_camera_matrix = 1;
@@ -107,20 +108,25 @@ namespace ImageIO {
         uint32_t outputWidth, outputHeight;
         uint16_t* buffer = nullptr;
 
-        if (cropWidth != 0 && cropHeight != 0) {
-            uint16_t *src = reinterpret_cast<uint16_t *>(processed_image->data);
-            buffer = new uint16_t[cropWidth * cropHeight * 3];
-            size_t offset = topOffset * bigWidth * 3;
+        if (cropWidth != 0 && cropHeight != 0 && !(cropWidth == bigWidth && cropHeight == bigHeight)) {
+            const size_t channels = 3;
+            auto src = reinterpret_cast<uint16_t *>(processed_image->data);
+            buffer = new uint16_t[cropWidth * cropHeight * channels];
 
-            uint32_t startOffset = leftOffset * 3;
-            uint32_t row = cropWidth * 3;
-            uint32_t backOffset = (bigWidth - cropWidth - leftOffset) * 3;
+            const size_t srcRow = bigWidth * channels;
+            const size_t dstRow = cropWidth * channels;
+
+            size_t srcOffset = topOffset * srcRow;
+
+            const uint32_t leftSrcOffset = leftOffset * channels;
 
             for (size_t i = 0; i < cropHeight; i++) {
-                offset += startOffset;
-                memcpy(buffer + row * i, src + offset + row * i, row * sizeof(uint16_t));
-                offset += backOffset;
+                memcpy(buffer + dstRow * i, src + srcOffset + leftSrcOffset, dstRow * sizeof(uint16_t));
+                srcOffset += srcRow;
             }
+
+            outputWidth = cropWidth;
+            outputHeight = cropHeight;
         }
         else {
             buffer = new uint16_t[processed_image->data_size];
@@ -136,7 +142,7 @@ namespace ImageIO {
         return NativeBitmap { 
             outputWidth, outputHeight, 3, 16, SampleFormat::UInt, 
             NativeColorSpace::RGB, icc, iccSize, (uint8_t*)buffer, 
-            outputWidth * outputHeight * 3
+            outputWidth * outputHeight * 3 * 2
         };
     }
 }

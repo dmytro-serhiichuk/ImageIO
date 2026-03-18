@@ -67,7 +67,7 @@ namespace ImageIO {
 
         bool isValid() const;
         bool isRequireProfileReconstruction(const ColorSpace &other) const;
-        bool isRequireSameBufferSize(const ColorSpace &other) const;
+        bool isHaveSameChannelsNumber(const ColorSpace &other) const;
 
         cmsUInt32Number buildLcmsType(uint32_t bytesPerSample, bool isFloat) const;
         cmsHPROFILE createProfile() const;

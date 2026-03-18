@@ -94,6 +94,17 @@ namespace ImageIO {
                 default:                        return { 4, NativeColorSpace::RGBA };
             }
         }
+
+        inline int getOutColorType(const Channels channels) {
+            switch (channels) {
+                case Channels::Grayscale:      return PNG_COLOR_TYPE_GRAY;
+                case Channels::GrayscaleAlpha: return PNG_COLOR_TYPE_GA;
+                case Channels::RGB:            return PNG_COLOR_TYPE_RGB;
+                case Channels::RGBA:           return PNG_COLOR_TYPE_RGBA;
+                default:
+                    throw std::runtime_error("PNG: Unsupported channels format");
+            }
+        }
     }
 
     NativeBitmap loadPNG(const char *filename) {
@@ -168,43 +179,69 @@ namespace ImageIO {
     }
 
     void savePNG(const char *filename, const Bitmap &bitmap, Properties props) {
-        const Bitmap* bmpPtr = &bitmap;
-        if (bitmap.depth != SampleType::U8) {
-            bmpPtr = bitmap.convertDepth(SampleType::U16);
+        bool supportedDepth = bitmap.sampleType == SampleType::U8 || bitmap.sampleType == SampleType::U16;
+        Bitmap src = supportedDepth ? bitmap.copy() : bitmap.convertSampleType(SampleType::U16);
+
+        int colorType = getOutColorType(src.colorSpace.channels);
+
+        png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+        if (!png) {
+            throw std::runtime_error("PNG: png_create_write_struct failed");
         }
 
-        png_image image;
-        memset(&image, 0, sizeof(image));
-        image.version = PNG_IMAGE_VERSION;
-
-        image.width = bitmap.width;
-        image.height = bitmap.height;
-
-        image.format = 0;
-        if (bmpPtr->colorSpace == BitmapColorSpace::RGB || bmpPtr->colorSpace == BitmapColorSpace::RGBA) {
-            image.format |= PNG_FORMAT_FLAG_COLOR;
-        }
-        if (bmpPtr->colorSpace == BitmapColorSpace::RGBA) {
-            image.format |= PNG_FORMAT_FLAG_ALPHA;
-        }
-        if (bmpPtr->depth != SampleType::U8) {
-            image.format |= PNG_FORMAT_FLAG_LINEAR;
-
-            // double gamma = 2.2;
-            // uint16_t* buffer16 = bmpPtr->ptr<uint16_t>();
-            // for (size_t i = 0; i < bmpPtr->bufferLength; i++) {
-            //     buffer16[i] = pow(buffer16[i] / 65535.0, gamma) * 65535.0;
-            // }
+        png_infop info = png_create_info_struct(png);
+        if (!info) {
+            png_destroy_write_struct(&png, nullptr);
+            throw std::runtime_error("PNG: png_create_info_struct failed");
         }
 
-        if (!png_image_write_to_file(&image, filename, 0, bmpPtr->ptr<uint8_t>(), 0, nullptr)) {
-            png_image_free(&image);
-            if (bmpPtr != &bitmap) delete bmpPtr;
-            throw std::runtime_error("Failed to write to file");
+        FILE* file = fopen(filename, "wb");
+        if (!file) {
+            png_destroy_write_struct(&png, &info);
+            throw std::runtime_error("PNG: cannot open file: " + std::string(filename));
         }
 
-        png_image_free(&image);
+        if (setjmp(png_jmpbuf(png))) {
+            fclose(file);
+            png_destroy_write_struct(&png, &info);
+            throw std::runtime_error("PNG: libpng error during write");
+        }
 
-        if (bmpPtr != &bitmap) delete bmpPtr;
+        png_init_io(png, file);
+
+        int bitDepth = src.getBytesPerSample(src.sampleType) * 8;
+
+        png_set_IHDR(
+            png, info, src.width, src.height, bitDepth, colorType, 
+            PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, 
+            PNG_FILTER_TYPE_DEFAULT
+        );
+
+        auto icc = src.getICCProfile();
+        png_set_iCCP(
+            png, info, "ICC Profile", PNG_COMPRESSION_TYPE_BASE, 
+            reinterpret_cast<png_const_bytep>(icc.data()),
+            static_cast<png_uint_32>(icc.size())
+        );
+
+        png_write_info(png, info);
+
+        if (src.sampleType == SampleType::U16) {
+            png_set_swap(png);
+        }
+
+        const uint8_t* bufPtr = src.ptr<uint8_t>();
+        const size_t rowBytes = static_cast<size_t>(src.stride);
+
+        std::vector<png_bytep> rows(src.height);
+        for (uint32_t y = 0; y < src.height; ++y) {
+            rows[y] = const_cast<png_bytep>(bufPtr + y * rowBytes);
+        }
+
+        png_write_image(png, rows.data());
+        png_write_end(png, nullptr);
+
+        fclose(file);
+        png_destroy_write_struct(&png, &info);
     }
 }

@@ -90,50 +90,18 @@ namespace ImageIO {
         return *this;
     }
 
-    inline size_t Bitmap::sizeOfBuffer() const {
-        return totalSamples * Bitmap::getBytesPerSample(sampleType);
-    }
-
-    Bitmap Bitmap::convertSampleType(const SampleType newSampleType, Properties props) const {
-        if (sampleType == newSampleType) return copy();
-
-        void* newBuffer = nullptr;
-
-        if (sampleType == SampleType::U8) {
-            if (newSampleType == SampleType::U16) newBuffer = _convertSampleType<uint8_t, uint16_t>(newSampleType, props);
-            if (newSampleType == SampleType::U32) newBuffer = _convertSampleType<uint8_t, uint32_t>(newSampleType, props);
-            if (newSampleType == SampleType::F32) newBuffer = _convertSampleType<uint8_t, float>(newSampleType, props);
-        }
-        if (sampleType == SampleType::U16) {
-            if (newSampleType == SampleType::U8)  newBuffer = _convertSampleType<uint16_t, uint8_t>(newSampleType, props);
-            if (newSampleType == SampleType::U32) newBuffer = _convertSampleType<uint16_t, uint32_t>(newSampleType, props);
-            if (newSampleType == SampleType::F32) newBuffer = _convertSampleType<uint16_t, float>(newSampleType, props);
-        }
-        if (sampleType == SampleType::U32) {
-            if (newSampleType == SampleType::U8)  newBuffer = _convertSampleType<uint32_t, uint8_t>(newSampleType, props);
-            if (newSampleType == SampleType::U16) newBuffer = _convertSampleType<uint32_t, uint16_t>(newSampleType, props);
-            if (newSampleType == SampleType::F32) newBuffer = _convertSampleType<uint32_t, float>(newSampleType, props);
-        }
-        if (sampleType == SampleType::F32) {
-            if (newSampleType == SampleType::U8)  newBuffer = _convertSampleType<float, uint8_t>(newSampleType, props);
-            if (newSampleType == SampleType::U16) newBuffer = _convertSampleType<float, uint16_t>(newSampleType, props);
-            if (newSampleType == SampleType::U32) newBuffer = _convertSampleType<float, uint32_t>(newSampleType, props);
-        }
-
-        return Bitmap(width, height, newBuffer, newSampleType, colorSpace, cloneProfile(profile));
-    }
-
-    Bitmap Bitmap::convertColorSpace(const ColorSpace newColorSpace, Properties props) const {
-        if (colorSpace == newColorSpace) return copy();
-
+    Bitmap Bitmap::convertByLcms2(SampleType newSampleType, ColorSpace newColorSpace) const {
         void* newBuffer = nullptr;
         cmsHPROFILE newProfile = nullptr;
 
-        uint32_t bytesPerSample = getBytesPerSample(sampleType);
-        bool isFloat = sampleType == SampleType::F32;
+        uint32_t inBytesPerSample  = getBytesPerSample(sampleType);
+        uint32_t outBytesPerSample = getBytesPerSample(newSampleType);
 
-        auto inType = colorSpace.buildLcmsType(bytesPerSample, isFloat);
-        auto outType = colorSpace.buildLcmsType(bytesPerSample, isFloat);
+        bool inIsFloat  = sampleType == SampleType::F32;
+        bool outIsFloat = newSampleType == SampleType::F32;
+
+        auto inType  = colorSpace.buildLcmsType(inBytesPerSample, inIsFloat);
+        auto outType = newColorSpace.buildLcmsType(outBytesPerSample, outIsFloat);
 
         newProfile = colorSpace.createProfile();
 
@@ -144,81 +112,59 @@ namespace ImageIO {
         );
 
         size_t size = width * height;
-        if (colorSpace.isRequireSameBufferSize(newColorSpace)) {
+        const bool haveSameChannelsNumber = colorSpace.isHaveSameChannelsNumber(newColorSpace);
+        const bool haveSameDepth = inBytesPerSample == outBytesPerSample;
+
+        if (haveSameChannelsNumber && haveSameDepth) {
             newBuffer = new uint8_t[sizeOfBuffer()]; 
             cmsDoTransform(t, buffer, newBuffer, size);
         } else {
-            size_t newBufferSize = size * bytesPerSample * (size_t)newColorSpace.channels;        
-            newBuffer = new uint8_t[newBufferSize]();
+            size_t newBufferSize = size * outBytesPerSample * (size_t)newColorSpace.channels;        
+            newBuffer = new uint8_t[newBufferSize];
             cmsDoTransform(t, buffer, newBuffer, size);
         }
 
-        // if (colorSpace.isRequireProfileReconstruction(newColorSpace)) {
-        //     uint32_t bytesPerSample = getBytesPerSample(sampleType);
-        //     bool isFloat = sampleType == SampleType::F32;
+        cmsDeleteTransform(t);
 
-        //     auto inType = colorSpace.buildLcmsType(bytesPerSample, isFloat);
-        //     auto outType = colorSpace.buildLcmsType(bytesPerSample, isFloat);
-
-        //     newProfile = colorSpace.createProfile();
-
-        //     cmsHTRANSFORM t = cmsCreateTransform(
-        //         profile, inType,
-        //         newProfile, outType,
-        //         INTENT_RELATIVE_COLORIMETRIC, 0
-        //     );
-
-        //     size_t size = width * height;
-        //     if (colorSpace.isRequireSameBufferSize(newColorSpace)) {
-        //         newBuffer = new uint8_t[sizeOfBuffer()]; 
-        //         cmsDoTransform(t, buffer, newBuffer, size);
-        //     } else {
-        //         size_t newBufferSize = size * bytesPerSample * (size_t)newColorSpace.channels;        
-        //         newBuffer = new uint8_t[newBufferSize]();
-        //         cmsDoTransform(t, buffer, newBuffer, size);
-        //     }
-        // } else {
-
-        // }
-
-        return Bitmap(width, height, newBuffer, sampleType, newColorSpace, newProfile);
+        return Bitmap(width, height, newBuffer, newSampleType, newColorSpace, newProfile);
     }
 
-    /*
-    Bitmap *Bitmap::convertTo(SampleType newDepth, BitmapColorSpace newColorSpace, Properties props) const
-    {
-        if (newDepth == depth && newColorSpace == colorSpace) {
-            return copy();
+    Bitmap Bitmap::convertTo(const SampleType newSampleType, const ColorSpace newColorSpace, Properties props) const {
+        if (sampleType == newSampleType && colorSpace == newColorSpace) return copy();
+
+        if (colorSpace.isRequireProfileReconstruction(newColorSpace)) {
+            return convertByLcms2(newSampleType, newColorSpace);
         }
 
-        if (depth == SampleType::U8) {
-            if (newDepth == SampleType::U8) return convert<uint8_t, uint8_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::U16) return convert<uint8_t, uint16_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::U32) return convert<uint8_t, uint32_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::F32) return convert<uint8_t, float>(newDepth, newColorSpace, props);
+        void* newBuffer = nullptr;
+
+        if (sampleType == SampleType::U8) {
+            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<uint8_t, uint8_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U16) newBuffer = _convertTo<uint8_t, uint16_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U32) newBuffer = _convertTo<uint8_t, uint32_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::F32) newBuffer = _convertTo<uint8_t, float>(newSampleType, newColorSpace, props);
         }
-        if (depth == SampleType::U16) {
-            if (newDepth == SampleType::U8) return convert<uint16_t, uint8_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::U16) return convert<uint16_t, uint16_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::U32) return convert<uint16_t, uint32_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::F32) return convert<uint16_t, float>(newDepth, newColorSpace, props);
+        if (sampleType == SampleType::U16) {
+            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<uint16_t, uint8_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U16) newBuffer = _convertTo<uint16_t, uint16_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U32) newBuffer = _convertTo<uint16_t, uint32_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::F32) newBuffer = _convertTo<uint16_t, float>(newSampleType, newColorSpace, props);
         }
-        if (depth == SampleType::U32) {
-            if (newDepth == SampleType::U8) return convert<uint32_t, uint8_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::U16) return convert<uint32_t, uint16_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::U32) return convert<uint32_t, uint32_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::F32) return convert<uint32_t, float>(newDepth, newColorSpace, props);
+        if (sampleType == SampleType::U32) {
+            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<uint32_t, uint8_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U16) newBuffer = _convertTo<uint32_t, uint16_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U32) newBuffer = _convertTo<uint32_t, uint32_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::F32) newBuffer = _convertTo<uint32_t, float>(newSampleType, newColorSpace, props);
         }
-        if (depth == SampleType::F32) {
-            if (newDepth == SampleType::U8) return convert<float, uint8_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::U16) return convert<float, uint16_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::U32) return convert<float, uint32_t>(newDepth, newColorSpace, props);
-            if (newDepth == SampleType::F32) return convert<float, float>(newDepth, newColorSpace, props);
+        if (sampleType == SampleType::F32) {
+            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<float, uint8_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U16) newBuffer = _convertTo<float, uint16_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U32) newBuffer = _convertTo<float, uint32_t>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::F32) newBuffer = _convertTo<float, float>(newSampleType, newColorSpace, props);
         }
 
-        throw std::runtime_error("Unsupported type");
+        return Bitmap(width, height, newBuffer, newSampleType, newColorSpace, cloneProfile(profile));
     }
-    */
 
     size_t Bitmap::getBytesPerSample(const SampleType sampleType) {
         if (sampleType == SampleType::U8) return 1;

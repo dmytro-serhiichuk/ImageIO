@@ -59,7 +59,7 @@ namespace ImageIO {
         static void writeSample(void *outputData, uint32_t value, uint8_t targetBits, size_t index);
         static void intToUint(NativeBitmap &src, size_t totalSamples);
 
-        static cmsHPROFILE normalizeColorSpace(NativeBitmap &src, ColorSpace outColorSpace);
+        static cmsHPROFILE normalizeColorSpace(NativeBitmap &src, ColorSpace outColorSpace, SampleType outSampleType);
         static cmsUInt32Number buildLcmsFormatter(NativeBitmap &src);
     };
 }

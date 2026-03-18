@@ -21,7 +21,7 @@ namespace ImageIO {
 
         return isRGB ^ isOtherRGB;
     }
-    bool ColorSpace::isRequireSameBufferSize(const ColorSpace &other) const
+    bool ColorSpace::isHaveSameChannelsNumber(const ColorSpace &other) const
     {
         return (size_t)channels == (size_t)other.channels; 
     }
