@@ -13,7 +13,7 @@ namespace ImageIO {
 
     enum class NativeColorSpace {
         Unknown, Grayscale, GrayscaleAlpha, RGB, RGBA, CMYK,
-        CMYKA, LAB, ALAB, LAB2, ALAB2
+        CMYKA, LAB, ALAB, LAB2, ALAB2, XYZ
     };
 
     struct NativeBitmap {

@@ -77,11 +77,6 @@ namespace ImageIO {
                 break;
         }
 
-        if (gamut == ColorGamut::XYZ) {
-            cmsFreeToneCurve(curve);
-            return cmsCreateXYZProfile();
-        }
-
         if (gamut == ColorGamut::Grayscale) {
             cmsHPROFILE h = cmsCreateGrayProfile(cmsD50_xyY(), curve);
             cmsFreeToneCurve(curve);

@@ -249,6 +249,8 @@ namespace ImageIO {
         return outProfile;
     }
     cmsUInt32Number NativeBitmap::buildLcmsFormatter(NativeBitmap &src) {
+        if (src.colorSpace == NativeColorSpace::XYZ) return TYPE_XYZ_16;
+
         cmsUInt32Number colorSpaceFlag = 0;
         cmsUInt32Number channelsCount = 0;
         cmsUInt32Number extraChannels = 0;

@@ -2,9 +2,9 @@
 #include "image-io.h"
 
 int main() {
-    const char* filename = "D:\\1.CR2";
+    const char* filename = "D:\\1.dng";
 
-    ImageIO::Bitmap bitmap = ImageIO::open(filename, ImageIO::SampleType::U16, ImageIO::ColorSpace::ProPhoto());
+    ImageIO::Bitmap bitmap = ImageIO::open(filename, ImageIO::SampleType::U16, ImageIO::ColorSpace::sRGB());
 
     ImageIO::Properties props{};
     props.jpegQuality = 100;

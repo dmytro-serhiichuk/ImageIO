@@ -11,23 +11,47 @@ namespace ImageIO {
         }
 
         void retrieveICCProfile(const LibRaw &processor, uint8_t*& icc, uint32_t &iccSize) {
-            const cmsCIExyYTRIPLE colorants = {
-                {1.0, 0.0, 0.0},
-                {0.0, 1.0, 0.0},
-                {0.0, 0.0, 1.0}
-            };
+            cmsHPROFILE hProfile = cmsCreateProfilePlaceholder(nullptr);
+            cmsSetDeviceClass(hProfile, cmsSigColorSpaceClass);
+            cmsSetColorSpace(hProfile, cmsSigXYZData);
+            cmsSetPCS(hProfile, cmsSigXYZData);
+
+            cmsCIExyY wpxyY;
+            cmsWhitePointFromTemp(&wpxyY, 6504.0);
+            cmsCIEXYZ wpXYZ;
+            cmsxyY2XYZ(&wpXYZ, &wpxyY);
+            cmsWriteTag(hProfile, cmsSigMediaWhitePointTag, &wpXYZ);
+
+            {
+                const cmsFloat64Number kBradford_D65_to_D50[9] = {
+                    1.0478112,  0.0228866, -0.0501270,
+                    0.0295424,  0.9904844, -0.0170491,
+                    -0.0092345,  0.0150436,  0.7521316
+                };
+
+                cmsPipeline* lut = cmsPipelineAlloc(nullptr, 3, 3);
+                cmsStage* mat = cmsStageAllocMatrix(nullptr, 3, 3, kBradford_D65_to_D50, nullptr);
+                cmsPipelineInsertStage(lut, cmsAT_END, mat);
+                cmsWriteTag(hProfile, cmsSigAToB0Tag, lut);
+                cmsPipelineFree(lut);
+            }
+
+            {
+                const cmsFloat64Number kBradford_D50_to_D65[9] = {
+                    0.9554734, -0.0230531,  0.0631633,
+                    -0.0282525,  1.0099416,  0.0210369,
+                    0.0123043, -0.0205345,  1.3303259
+                };
+
+                cmsPipeline* lut = cmsPipelineAlloc(nullptr, 3, 3);
+                cmsStage* mat = cmsStageAllocMatrix(nullptr, 3, 3, kBradford_D50_to_D65, nullptr);
+                cmsPipelineInsertStage(lut, cmsAT_END, mat);
+                cmsWriteTag(hProfile, cmsSigBToA0Tag, lut);
+                cmsPipelineFree(lut);
+            }
             
-            cmsToneCurve* lin = cmsBuildGamma(NULL, 1.0);
-            cmsToneCurve* curves[3] = {lin, lin, lin};
-            
-            cmsCIExyY d65;
-            cmsWhitePointFromTemp(&d65, 6504.0);
-            
-            // cmsHPROFILE h = cmsCreateRGBProfile(&d65, &colorants, curves);
-            cmsHPROFILE h = cmsCreate_sRGBProfile();
-            cmsFreeToneCurve(lin);
-            writeProfileToMem(h, icc, iccSize);
-            cmsCloseProfile(h);
+            writeProfileToMem(hProfile, icc, iccSize);
+            cmsCloseProfile(hProfile);
         }
     }
 
@@ -49,7 +73,6 @@ namespace ImageIO {
             throw std::runtime_error("RAW: Cannot open input file");
         }
         
-        // TODO: fix color
         processor.imgdata.params.output_bps = 16;
         processor.imgdata.params.use_camera_wb = 1;
         processor.imgdata.params.use_camera_matrix = 1;
@@ -141,7 +164,7 @@ namespace ImageIO {
 
         return NativeBitmap { 
             outputWidth, outputHeight, 3, 16, SampleFormat::UInt, 
-            NativeColorSpace::RGB, icc, iccSize, (uint8_t*)buffer, 
+            NativeColorSpace::XYZ, icc, iccSize, (uint8_t*)buffer, 
             outputWidth * outputHeight * 3 * 2
         };
     }

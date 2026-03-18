@@ -16,7 +16,6 @@ namespace ImageIO {
         sRGB,
         ProPhoto,
         AdobeRGB,
-        XYZ,
         Grayscale,
     };
 
@@ -50,10 +49,6 @@ namespace ImageIO {
         }
         static ColorSpace ProPhotoAlpha() {
             return { Channels::RGBA, ColorGamut::ProPhoto, TransferFunction::Gamma_1_8 };
-        }
-
-        static ColorSpace XYZ() {
-            return { Channels::RGB, ColorGamut::XYZ, TransferFunction::Linear };
         }
 
         static ColorSpace Grayscale() {
