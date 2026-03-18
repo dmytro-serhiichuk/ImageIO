@@ -60,10 +60,10 @@ namespace ImageIO {
             colorSpace = b.colorSpace;
 
             buffer = b.buffer;
-            profile = cloneProfile(b.profile);
+            profile = b.profile;
 
             b.buffer = nullptr;
-            cmsCloseProfile(b.profile);
+            b.profile = nullptr;
         }
 
         return *this;
@@ -103,7 +103,7 @@ namespace ImageIO {
         auto inType  = colorSpace.buildLcmsType(inBytesPerSample, inIsFloat);
         auto outType = newColorSpace.buildLcmsType(outBytesPerSample, outIsFloat);
 
-        newProfile = colorSpace.createProfile();
+        newProfile = newColorSpace.createProfile();
 
         cmsHTRANSFORM t = cmsCreateTransform(
             profile, inType,
