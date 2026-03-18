@@ -49,10 +49,12 @@ namespace ImageIO {
 
         NativeBitmap& operator=(const NativeBitmap& nb);
 
+        /// @brief Performs safe normalization and conversion of data to ensure 
+        /// compliance with the requirements of the ImageIO ::Bitmap class
+        /// @return New instance of ImageIO::Bitmap
         Bitmap toBitmap(SampleType outSampleType, ColorSpace outColorSpace) const;
     
     private:
-        // SampleType Normalization
         static void normalizeDepth(NativeBitmap &src, SampleType outSampleType);
         static uint64_t readPackedSample(NativeBitmap &src, size_t index);
         static uint32_t bitReplicate(uint64_t val, uint8_t srcBits, uint8_t dstBits);

@@ -25,7 +25,7 @@ namespace ImageIO {
 
     /// @brief Opens image from file and recognizes the image type 
     /// @param sampleType Sample type and depth of output bitmap 
-    /// @param colorSpace Color space and color profile of output bitmap
+    /// @param colorSpace Channels format and color profile of output bitmap
     /// @return New instance of Bitmap    
     Bitmap open(const char* filename, 
         SampleType sampleType = SampleType::U8, 
