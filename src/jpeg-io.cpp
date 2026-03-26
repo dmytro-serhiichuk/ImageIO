@@ -52,8 +52,12 @@ namespace ImageIO {
                 return src.convertTo(SampleType::U8, ColorModel::GRAY);
             } else if (src.colorModel == ColorModel::XYZ) {
                 return src.convertTo(SampleType::U8, ColorModel::RGB);
-            } else if (src.colorModel == ColorModel::CMYKA) {
-                return src.convertTo(SampleType::U8, ColorModel::CMYK);
+            } else if (src.colorModel == ColorModel::CMYKA || src.colorModel == ColorModel::CMYK) {
+                auto b = src.convertTo(SampleType::U8, ColorModel::CMYK);
+                for (size_t i = 0; i < b.totalSamples; i++) {
+                    b.buffer[i] = 255 - b.buffer[i];
+                }
+                return b;
             } else {
                 return src.convertSampleType(SampleType::U8);
             }
@@ -106,7 +110,6 @@ namespace ImageIO {
         }
     }
     
-    // TODO: fix cmyk colors
     Bitmap loadJPEG(const char* filename) {
         FILE *file = fopen(filename, "rb");
         if (file == nullptr) {

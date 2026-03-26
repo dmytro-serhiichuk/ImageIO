@@ -119,7 +119,6 @@ namespace ImageIO {
 
         if (t == nullptr) {
             cmsCloseProfile(outProfile);
-            cmsDeleteTransform(t);
             throw std::runtime_error("Bitmap: Invalid output icc profile");
         }
 
