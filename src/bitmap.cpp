@@ -117,7 +117,7 @@ namespace ImageIO {
             INTENT_RELATIVE_COLORIMETRIC, 0
         );
 
-        if (t == nullptr) {
+        if (!t) {
             cmsCloseProfile(outProfile);
             throw std::runtime_error("Bitmap: Invalid output icc profile");
         }

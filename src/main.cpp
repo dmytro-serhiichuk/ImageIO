@@ -2,7 +2,7 @@
 #include "image-io.h"
 
 int main() {
-    const char* filename = "D:\\1.CR2";
+    const char* filename = "D:\\2.jpg";
 
     // uint8_t pixel[3] = { 54, 54, 54 };
     // uint8_t res[3];
@@ -27,17 +27,15 @@ int main() {
     ImageIO::Bitmap bitmap = ImageIO::open(
         filename, 
         ImageIO::SampleType::U16,
-        ImageIO::ColorModel::RGB
+        ImageIO::ColorModel::GRAYA
     );
-    
-    bitmap = bitmap.convertColorModel(ImageIO::ColorModel::CMYK);
 
     ImageIO::Properties props{};
     props.jpegQuality = 100;
 
     ImageIO::save("D:\\sRGBA.jpg", bitmap, props);
     // ImageIO::save("D:\\sRGBA.png", bitmap, props);
-    // ImageIO::save("D:\\sRGBA.tiff", bitmap, props);
+    ImageIO::save("D:\\sRGBA.tiff", bitmap, props);
     // ImageIO::save("D:\\0.png", bitmap, props);
     // ImageIO::save("D:\\0.tiff", bitmap, props);
 

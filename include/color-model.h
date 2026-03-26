@@ -23,6 +23,7 @@ namespace ImageIO {
         return ((uint32_t)colorModel & ALPHA_FLAG) != 0;
     }
 
+    // Checks if passed color models can share the icc profile 
     bool isColorModelsShareProfiles(const ColorModel a, const ColorModel b);
 }
 
