@@ -2,177 +2,183 @@
 #include "profile-management.h"
 
 namespace ImageIO {
-    Bitmap::Bitmap(const Bitmap& other) {
-        width = other.width;
-        height = other.height;
-        totalSamples = other.totalSamples;
-        stride = other.stride;
-        samplesPerPixel = other.samplesPerPixel;
-        sampleType = other.sampleType;
-        colorSpace = other.colorSpace;
+    Bitmap::Bitmap() {
+        width = 0;
+        height = 0;
+        bufferSize = 0;
+        totalSamples = 0;
+        stride = 0;
+        sampleType = SampleType::U8;
+        colorModel = ColorModel::RGB;
 
-        size_t size = other.sizeOfBuffer();
-        buffer = new uint8_t[size];
-        memcpy(buffer, other.buffer, size);
-
-        profile = cloneProfile(other.profile);
+        buffer = nullptr;
+        profile = nullptr;
     }
 
-    Bitmap::Bitmap(Bitmap&& other) noexcept {
+    Bitmap::Bitmap(const Bitmap &other) {
         width = other.width;
         height = other.height;
+        bufferSize = other.bufferSize;
         totalSamples = other.totalSamples;
         stride = other.stride;
-        samplesPerPixel = other.samplesPerPixel;
         sampleType = other.sampleType;
-        colorSpace = other.colorSpace;
+        colorModel = other.colorModel;
+
+        buffer = new uint8_t[bufferSize];
+        memcpy(buffer, other.buffer, bufferSize);
+        profile = cloneProfile(other.profile);
+    }
+    Bitmap::Bitmap(Bitmap &&other) noexcept {
+        width = other.width;
+        height = other.height;
+        bufferSize = other.bufferSize;
+        totalSamples = other.totalSamples;
+        stride = other.stride;
+        sampleType = other.sampleType;
+        colorModel = other.colorModel;
 
         buffer = other.buffer;
         other.buffer = nullptr;
         profile = other.profile;
         other.profile = nullptr;
     }
-
     Bitmap::~Bitmap() {
         delete [] buffer;
         buffer = nullptr;
         cmsCloseProfile(profile);
+        profile = nullptr;
     }
 
     Bitmap Bitmap::copy() const {
-        size_t size = sizeOfBuffer();
-        uint8_t* cb = new uint8_t[size];
-        memcpy(cb, buffer, size);
-        return Bitmap(width, height, cb, sampleType, colorSpace, cloneProfile(profile));
+        uint8_t* cb = new uint8_t[bufferSize];
+        memcpy(cb, buffer, bufferSize);
+        return Bitmap(width, height, cb, sampleType, colorModel, cloneProfile(profile));
     }
-
-    Bitmap &Bitmap::operator=(Bitmap &&b) {
-        if (this != &b) {
-            delete[] buffer;
+  
+    Bitmap &Bitmap::operator=(const Bitmap &other) {
+        if (this != &other) {
+            delete [] buffer;
             cmsCloseProfile(profile);
 
-            width = b.width;
-            height = b.height;
-            totalSamples = b.totalSamples;
-            stride = b.stride;
-            samplesPerPixel = b.samplesPerPixel;
-            sampleType = b.sampleType;
-            colorSpace = b.colorSpace;
+            width = other.width;
+            height = other.height;
+            bufferSize = other.bufferSize;
+            totalSamples = other.totalSamples;
+            stride = other.stride;
+            sampleType = other.sampleType;
+            colorModel = other.colorModel;
 
-            buffer = b.buffer;
-            profile = b.profile;
-
-            b.buffer = nullptr;
-            b.profile = nullptr;
+            buffer = new uint8_t[bufferSize];
+            memcpy(buffer, other.buffer, bufferSize);
+            profile = cloneProfile(other.profile);
         }
-
         return *this;
     }
-    Bitmap &Bitmap::operator=(const Bitmap &b) {
-        if (this != &b) {
-            delete[] buffer;
+    Bitmap &Bitmap::operator=(Bitmap &&other) {
+        if (this != &other) {
+            delete [] buffer;
             cmsCloseProfile(profile);
 
-            width = b.width;
-            height = b.height;
-            totalSamples = b.totalSamples;
-            stride = b.stride;
-            samplesPerPixel = b.samplesPerPixel;
-            sampleType = b.sampleType;
-            colorSpace = b.colorSpace;
-            
-            size_t size = b.sizeOfBuffer();
-            buffer = new uint8_t[size];
-            memcpy(buffer, b.buffer, size);
-            profile = cloneProfile(b.profile);
-        }
+            width = other.width;
+            height = other.height;
+            bufferSize = other.bufferSize;
+            totalSamples = other.totalSamples;
+            stride = other.stride;
+            sampleType = other.sampleType;
+            colorModel = other.colorModel;
 
+            buffer = other.buffer;
+            other.buffer = nullptr;
+            profile = other.profile;
+            other.profile = nullptr;
+        }
         return *this;
     }
 
-    Bitmap Bitmap::convertByLcms2(SampleType newSampleType, ColorSpace newColorSpace) const {
-        void* newBuffer = nullptr;
-        cmsHPROFILE newProfile = nullptr;
+    Bitmap Bitmap::convertByLcms2(SampleType newSampleType, ColorModel newColorModel, const cmsHPROFILE newProfile) const {
+        uint8_t* newBuffer = nullptr;
+        cmsHPROFILE outProfile = nullptr;
 
         uint32_t inBytesPerSample  = getBytesPerSample(sampleType);
         uint32_t outBytesPerSample = getBytesPerSample(newSampleType);
 
-        bool inIsFloat  = sampleType == SampleType::F32;
-        bool outIsFloat = newSampleType == SampleType::F32;
+        auto inType  = buildLcmsType(colorModel, sampleType);
+        auto outType = buildLcmsType(newColorModel, newSampleType);
+        
+        outProfile = newProfile ? newProfile : createProfileFromColorModel(newColorModel);
 
-        auto inType  = colorSpace.buildLcmsType(inBytesPerSample, inIsFloat);
-        auto outType = newColorSpace.buildLcmsType(outBytesPerSample, outIsFloat);
-
-        newProfile = newColorSpace.createProfile();
+        if (!outProfile) {
+            throw std::runtime_error("Bitmap: Failed to create output profile");
+        }
 
         cmsHTRANSFORM t = cmsCreateTransform(
             profile, inType,
-            newProfile, outType,
+            outProfile, outType,
             INTENT_RELATIVE_COLORIMETRIC, 0
         );
 
+        if (t == nullptr) {
+            cmsCloseProfile(outProfile);
+            cmsDeleteTransform(t);
+            throw std::runtime_error("Bitmap: Invalid output icc profile");
+        }
+
         size_t size = width * height;
-        const bool haveSameChannelsNumber = colorSpace.isHaveSameChannelsNumber(newColorSpace);
+        const uint8_t inSpp  = getSamplesPerPixel(colorModel);
+        const uint8_t outSpp = getSamplesPerPixel(newColorModel);
+        const bool haveSameChannelsNumber = inSpp == outSpp;
         const bool haveSameDepth = inBytesPerSample == outBytesPerSample;
 
         if (haveSameChannelsNumber && haveSameDepth) {
-            newBuffer = new uint8_t[sizeOfBuffer()]; 
+            newBuffer = new uint8_t[bufferSize]; 
             cmsDoTransform(t, buffer, newBuffer, size);
         } else {
-            size_t newBufferSize = size * outBytesPerSample * (size_t)newColorSpace.channels;        
+            size_t newBufferSize = size * outBytesPerSample * outSpp;        
             newBuffer = new uint8_t[newBufferSize];
+            if (hasAlpha(newColorModel)) std::fill(newBuffer, newBuffer + newBufferSize, 255);
             cmsDoTransform(t, buffer, newBuffer, size);
         }
 
         cmsDeleteTransform(t);
 
-        return Bitmap(width, height, newBuffer, newSampleType, newColorSpace, newProfile);
+        return Bitmap(width, height, newBuffer, newSampleType, newColorModel, outProfile);
     }
 
-    Bitmap Bitmap::convertTo(const SampleType newSampleType, const ColorSpace newColorSpace, Properties props) const {
-        if (sampleType == newSampleType && colorSpace == newColorSpace) return copy();
+    Bitmap Bitmap::convertTo(const SampleType newSampleType, const ColorModel newColorModel, const cmsHPROFILE newProfile, Properties props) const {
+        if (sampleType == newSampleType && colorModel == newColorModel) return copy();
 
-        if (colorSpace.isRequireProfileReconstruction(newColorSpace)) {
-            return convertByLcms2(newSampleType, newColorSpace);
+        if (!isColorModelsShareProfiles(colorModel, newColorModel) || newProfile != nullptr) {
+            return convertByLcms2(newSampleType, newColorModel, newProfile);
         }
 
         void* newBuffer = nullptr;
 
         if (sampleType == SampleType::U8) {
-            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<uint8_t, uint8_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::U16) newBuffer = _convertTo<uint8_t, uint16_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::U32) newBuffer = _convertTo<uint8_t, uint32_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::F32) newBuffer = _convertTo<uint8_t, float>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<uint8_t, uint8_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::U16) newBuffer = _convertTo<uint8_t, uint16_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::U32) newBuffer = _convertTo<uint8_t, uint32_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::F32) newBuffer = _convertTo<uint8_t, float>(newSampleType, newColorModel, props);
         }
         if (sampleType == SampleType::U16) {
-            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<uint16_t, uint8_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::U16) newBuffer = _convertTo<uint16_t, uint16_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::U32) newBuffer = _convertTo<uint16_t, uint32_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::F32) newBuffer = _convertTo<uint16_t, float>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<uint16_t, uint8_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::U16) newBuffer = _convertTo<uint16_t, uint16_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::U32) newBuffer = _convertTo<uint16_t, uint32_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::F32) newBuffer = _convertTo<uint16_t, float>(newSampleType, newColorModel, props);
         }
         if (sampleType == SampleType::U32) {
-            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<uint32_t, uint8_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::U16) newBuffer = _convertTo<uint32_t, uint16_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::U32) newBuffer = _convertTo<uint32_t, uint32_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::F32) newBuffer = _convertTo<uint32_t, float>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<uint32_t, uint8_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::U16) newBuffer = _convertTo<uint32_t, uint16_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::U32) newBuffer = _convertTo<uint32_t, uint32_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::F32) newBuffer = _convertTo<uint32_t, float>(newSampleType, newColorModel, props);
         }
         if (sampleType == SampleType::F32) {
-            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<float, uint8_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::U16) newBuffer = _convertTo<float, uint16_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::U32) newBuffer = _convertTo<float, uint32_t>(newSampleType, newColorSpace, props);
-            if (newSampleType == SampleType::F32) newBuffer = _convertTo<float, float>(newSampleType, newColorSpace, props);
+            if (newSampleType == SampleType::U8)  newBuffer = _convertTo<float, uint8_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::U16) newBuffer = _convertTo<float, uint16_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::U32) newBuffer = _convertTo<float, uint32_t>(newSampleType, newColorModel, props);
+            if (newSampleType == SampleType::F32) newBuffer = _convertTo<float, float>(newSampleType, newColorModel, props);
         }
 
-        return Bitmap(width, height, newBuffer, newSampleType, newColorSpace, cloneProfile(profile));
-    }
-
-    size_t Bitmap::getBytesPerSample(const SampleType sampleType) {
-        if (sampleType == SampleType::U8) return 1;
-        if (sampleType == SampleType::U16) return 2;
-        if (sampleType == SampleType::U32) return 4;
-        if (sampleType == SampleType::F32) return 4;
-
-        throw std::runtime_error("Unsupported depth");
+        return Bitmap(width, height, newBuffer, newSampleType, newColorModel, cloneProfile(profile));
     }
 
     std::vector<uint8_t> Bitmap::getICCProfile() const {

@@ -2,10 +2,9 @@
 #define IMAGEIO_TIFFIO_H
 
 #include "bitmap.h"
-#include "native-bitmap.h"
 
 namespace ImageIO {
-    NativeBitmap loadTIFF(const char* filename);
+    Bitmap loadTIFF(const char* filename);
 
     void saveTIFF(const char* filename, const Bitmap &bitmap, Properties props);
 }

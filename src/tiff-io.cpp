@@ -1,9 +1,34 @@
 #include "tiff-io.h"
 #include <tiffio.h>
 #include <lcms2.h>
+#include "profile-management.h"
 
 namespace ImageIO {
     namespace {
+        enum class SampleFormat {
+            UInt, Int, Float
+        };
+
+        enum class ColorSpace {
+            Unknown, RGB, RGBA, Gray, GrayA, CMYK, CMYKA
+        };
+
+        struct TIFFData {
+            uint32_t width = 0;
+            uint32_t height = 0;
+            uint8_t samplesPerPixel = 0;
+            uint8_t bitsPerSample = 0;
+            SampleFormat sampleFormat;
+            ColorSpace colorSpace;
+
+            uint8_t* data = nullptr;
+            size_t dataSize = 0;
+
+            ~TIFFData() {
+                delete [] data;
+            }
+        };
+
         inline SampleFormat getSampleFormat(TIFF *tiff) {
             uint16_t sampleFormat;
             TIFFGetFieldDefaulted(tiff, TIFFTAG_SAMPLEFORMAT, &sampleFormat);
@@ -40,26 +65,26 @@ namespace ImageIO {
             return { hasAssocAlpha, hasUnassAlpha };
         }
 
-        inline void writeProfileToMem(cmsHPROFILE profile, uint8_t*& icc, uint32_t &iccSize) {
-            cmsSaveProfileToMem(profile, NULL, &iccSize);
-            icc = new uint8_t[iccSize]();
-            cmsSaveProfileToMem(profile, icc, &iccSize);
-        } 
-
-        inline void retrieveICCProfile(TIFF* tiff, uint8_t *&icc, uint32_t &iccSize) {
-            uint32_t _iccSize = 0;
-            void*    _icc = nullptr;
-            if (TIFFGetField(tiff, TIFFTAG_ICCPROFILE, &_iccSize, &_icc)
-                && _iccSize > 0 && _icc)
-            {
-                iccSize = _iccSize;
-                icc     = new uint8_t[iccSize];
-                std::memcpy(icc, _icc, iccSize);
+        inline ColorSpace getColorSpace(uint16_t photo, bool hasAlpha) {
+            switch (photo) {
+                case PHOTOMETRIC_MINISBLACK:
+                case PHOTOMETRIC_MINISWHITE:
+                    return hasAlpha ? ColorSpace::GrayA : ColorSpace::Gray;
+                case PHOTOMETRIC_RGB:
+                    return hasAlpha ? ColorSpace::RGBA : ColorSpace::RGB;
+                case PHOTOMETRIC_SEPARATED: // CMYK
+                    return hasAlpha ? ColorSpace::CMYKA : ColorSpace::CMYK;
+                case PHOTOMETRIC_CIELAB:
+                case PHOTOMETRIC_ICCLAB:
+                case PHOTOMETRIC_ITULAB:
+                    throw std::runtime_error("TIFF: LAB format is not supported in this version of the library");
+                default:
+                    return ColorSpace::Unknown;
             }
         }
 
-        inline void readYCbCr(TIFF *tiff, NativeBitmap &bm) {
-            bm.colorSpace      = NativeColorSpace::RGBA;
+        inline void readYCbCr(TIFF *tiff, TIFFData &bm) {
+            bm.colorSpace      = ColorSpace::RGBA;
             bm.samplesPerPixel = 4;
             bm.bitsPerSample   = 8;
             bm.sampleFormat    = SampleFormat::UInt;
@@ -91,8 +116,8 @@ namespace ImageIO {
                 }
             }
         }
-
-        inline void readTiles(TIFF *tiff, NativeBitmap &bm, bool isSeparate, size_t bytesPerPixel, size_t bytesPerSample) {
+    
+        inline void readTiles(TIFF *tiff, TIFFData &bm, bool isSeparate, size_t bytesPerPixel, size_t bytesPerSample) {
             uint32_t tileW = 0, tileH = 0;
             TIFFGetField(tiff, TIFFTAG_TILEWIDTH,  &tileW);
             TIFFGetField(tiff, TIFFTAG_TILELENGTH, &tileH);
@@ -140,7 +165,7 @@ namespace ImageIO {
             }
         }
     
-        inline void readStrip(TIFF *tiff, NativeBitmap &bm, bool isSeparate, size_t bytesPerPixel, size_t bytesPerSample) {
+        inline void readStrip(TIFF *tiff, TIFFData &bm, bool isSeparate, size_t bytesPerPixel, size_t bytesPerSample) {
             if (!isSeparate) {
                 for (uint32_t row = 0; row < bm.height; ++row) {
                     uint8_t* dst = bm.data + row * bm.width * bytesPerPixel;
@@ -164,7 +189,7 @@ namespace ImageIO {
             }
         }
     
-        inline void unPremultiplyInt(uint8_t* data, size_t numPixels, uint8_t spp, uint8_t bps) {
+        inline void unPremultiplyInt(uint8_t* data, size_t numPixels, uint8_t spp, uint8_t bps) noexcept {
             const size_t bytesPerSample = bps / 8;
             const size_t bytesPerPixel  = spp * bytesPerSample;
             const int    alphaIdx       = spp - 1;
@@ -186,7 +211,7 @@ namespace ImageIO {
             }
         }
 
-        inline void unPremultiplyFloat32(uint8_t* data, size_t numPixels, uint8_t spp) {
+        inline void unPremultiplyFloat32(uint8_t* data, size_t numPixels, uint8_t spp) noexcept {
             float* pixels = reinterpret_cast<float*>(data);
             int    alphaIdx = spp - 1;
             for (size_t p = 0; p < numPixels; ++p) {
@@ -196,18 +221,137 @@ namespace ImageIO {
                     for (int s = 0; s < alphaIdx; ++s) px[s] /= a;
             }
         }
+    
+        inline uint32_t readPackedSample(TIFFData &src, size_t index) noexcept {
+            uint32_t result = 0;
 
-        inline void unPremultiplyFloat64(uint8_t* data, size_t numPixels, uint8_t spp) {
-            double* pixels = reinterpret_cast<double*>(data);
-            int     alphaIdx = spp - 1;
-            for (size_t p = 0; p < numPixels; ++p) {
-                double* px = pixels + p * spp;
-                double  a  = px[alphaIdx];
-                if (a > 0.0 && a < 1.0)
-                    for (int s = 0; s < alphaIdx; ++s) px[s] /= a;
+            size_t bitOffset = index * src.bitsPerSample;
+
+            for (uint8_t i = 0; i < src.bitsPerSample; i++) {
+                size_t  byteIdx = (bitOffset + i) / 8;
+                uint8_t bitIdx  = 7u - static_cast<uint8_t>((bitOffset + i) % 8); // MSB2LSB
+                result = (result << 1u) | ((src.data[byteIdx] >> bitIdx) & 1u);
+            }
+            return result;
+        }
+        inline uint32_t bitReplicate(uint32_t val, uint8_t srcBits, uint8_t dstBits) noexcept {
+            if (srcBits == dstBits) return val;
+            uint32_t result = 0;
+            int remaining = dstBits;
+            while (remaining > 0) {
+                int take = std::min((int)srcBits, remaining);
+                result |= (val >> (srcBits - take)) << (remaining - take);
+                remaining -= take;
+            }
+            return result;
+        }
+        inline void writeSample(void *outputData, uint32_t value, uint8_t targetBits, size_t index) noexcept {
+            if (targetBits == 8) {
+                memcpy((uint8_t*)outputData + index, &value, sizeof(uint8_t));
+            } else if (targetBits == 16) {
+                memcpy((uint16_t*)outputData + index, &value, sizeof(uint16_t));
+            } else if (targetBits == 32) {
+                memcpy((uint32_t*)outputData + index, &value, sizeof(uint32_t));
             }
         }
+        inline void normalizeDepth(TIFFData &src) noexcept {
+            const uint8_t bps = src.bitsPerSample;
+            if (bps == 8 || bps == 16 || bps == 32) return;
+            
+            uint8_t targetBps = 8;
+            if (bps < 8) targetBps = 8;
+            else if (bps < 16) targetBps = 16;
+            else targetBps = 32;
+
+            const size_t totalSamples = src.width * src.height * src.samplesPerPixel;
+            const size_t outputSize = totalSamples * (targetBps / 8);
+            auto outputData = new uint8_t[outputSize];
+
+            for (size_t i = 0; i < totalSamples; i++) {
+                uint32_t val = readPackedSample(src, i);
+                uint32_t normalized = bitReplicate(val, bps, targetBps);
+                writeSample(outputData, normalized, targetBps, i);
+            }
+
+            delete [] src.data;
+            src.data = outputData;
+            src.dataSize = outputSize;
+            src.bitsPerSample = targetBps;
+        }
+        
+        inline void convertIntToUInt(TIFFData &src) noexcept {
+            if (src.sampleFormat != SampleFormat::Int) return;
+
+            const size_t totalSamples = src.width * src.height * src.samplesPerPixel;
+
+            if (src.bitsPerSample == 8) {
+                for (size_t i = 0; i < totalSamples; i++) {
+                    src.data[i] = (uint8_t)((int16_t)(src.data[i]) + 128);
+                }
+            } else if (src.bitsPerSample == 16) {
+                for (size_t i = 0; i < totalSamples; i++) {
+                    src.data[i] = (uint16_t)((int32_t)(src.data[i]) + 32768);
+                }
+            } else {
+                for (size_t i = 0; i < totalSamples; i++) {
+                    src.data[i] = (uint32_t)((int64_t)(src.data[i]) + 2147483648LL);
+                }            
+            }
+
+            src.sampleFormat == SampleFormat::UInt;
+        }
     
+        inline cmsHPROFILE retrieveICCProfile(TIFF* tiff, TIFFData &src) {
+            uint32_t iccSize = 0;
+            void*    icc = nullptr;
+            if (TIFFGetField(tiff, TIFFTAG_ICCPROFILE, &iccSize, &icc) && iccSize > 0 && icc) {
+                return cmsOpenProfileFromMem(icc, iccSize);
+            } else {
+                switch (src.colorSpace) {
+                    case ColorSpace::CMYK:
+                    case ColorSpace::CMYKA:
+                        return createCMYKProfile();
+                    case ColorSpace::RGB:
+                    case ColorSpace::RGBA:
+                        return cmsCreate_sRGBProfile();
+                    case ColorSpace::Gray:
+                    case ColorSpace::GrayA: 
+                        return createDefaultGrayProfile();
+                    default:
+                        throw std::runtime_error("TIFF: Color Space is not defined or not supported");
+                }
+            }
+        }
+
+        inline SampleType getSampleType(TIFFData &src) noexcept {
+            if (src.sampleFormat == SampleFormat::Float) {
+                return SampleType::F32;
+            } else {
+                if (src.bitsPerSample == 8)       return SampleType::U8;
+                else if (src.bitsPerSample == 16) return SampleType::U16;
+                else                              return SampleType::U32;
+            }
+        }
+        inline ColorModel getColorModel(TIFFData &src) {
+            switch (src.colorSpace) {
+                case ColorSpace::RGB:   return ColorModel::RGB;
+                case ColorSpace::RGBA:  return ColorModel::RGBA;
+                case ColorSpace::Gray:  return ColorModel::GRAY;
+                case ColorSpace::GrayA: return ColorModel::GRAYA;
+                case ColorSpace::CMYK:  return ColorModel::CMYK;
+                case ColorSpace::CMYKA: return ColorModel::CMYKA;
+                default: throw std::runtime_error("TIFF: Color Model is not defined");
+            }
+        }
+
+        inline Bitmap convertForSaving(const Bitmap &src) {
+            if (src.colorModel == ColorModel::XYZ) {
+                return src.convertColorModel(ColorModel::RGB);
+            } else {
+                return src.copy();
+            }
+        }
+
         struct SampleInfo {
             uint16_t bitsPerSample = 0;
             uint16_t sampleFormat  = 0;
@@ -215,7 +359,7 @@ namespace ImageIO {
 
         inline SampleInfo getSampleInfo(const SampleType sampleType) {
             switch (sampleType) {
-                case SampleType::U8:  return { 8, SAMPLEFORMAT_UINT };
+                case SampleType::U8:  return { 8,  SAMPLEFORMAT_UINT };
                 case SampleType::U16: return { 16, SAMPLEFORMAT_UINT };
                 case SampleType::U32: return { 32, SAMPLEFORMAT_UINT };
                 case SampleType::F32: return { 32, SAMPLEFORMAT_IEEEFP };
@@ -230,127 +374,66 @@ namespace ImageIO {
             uint16_t extraSampleType    = EXTRASAMPLE_UNASSALPHA;
         };
 
-        inline ColorInfo getColorInfo(const Channels channels) {
-            switch (channels) {
-                case Channels::RGB:            return { 3, PHOTOMETRIC_RGB, 0 };
-                case Channels::RGBA:           return { 4, PHOTOMETRIC_RGB, 1 };
-                case Channels::Grayscale:      return { 1, PHOTOMETRIC_MINISBLACK, 0 };
-                case Channels::GrayscaleAlpha: return { 2, PHOTOMETRIC_MINISBLACK, 1 };
+        inline ColorInfo getColorInfo(const ColorModel colorModel) {
+            switch (colorModel) {
+                case ColorModel::RGB:   return { 3, PHOTOMETRIC_RGB, 0 };
+                case ColorModel::RGBA:  return { 4, PHOTOMETRIC_RGB, 1 };
+                case ColorModel::GRAY:  return { 1, PHOTOMETRIC_MINISBLACK, 0 };
+                case ColorModel::GRAYA: return { 2, PHOTOMETRIC_MINISBLACK, 1 };
+                case ColorModel::CMYK:  return { 4, PHOTOMETRIC_SEPARATED, 0 };
+                case ColorModel::CMYKA: return { 5, PHOTOMETRIC_SEPARATED, 1 };
                 default: return { 0, 0, 0 };
             }
         }
     }
 
-    NativeBitmap loadTIFF(const char* filename) {
+    Bitmap loadTIFF(const char* filename) {
         TIFF* tiff = TIFFOpen(filename, "r");
         if (!tiff) {
             throw std::runtime_error("Failed to open file");
         }
 
         struct Guard { TIFF* t; ~Guard() { TIFFClose(t); } } guard{tiff};
-
-        NativeBitmap bm {};
+        
+        TIFFData tiffData {};
 
         uint32_t width, height;
         if (!TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH,  &width) ||
             !TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height))
             throw std::runtime_error("TIFF: missing width or height tag");
-        bm.width  = width;
-        bm.height = height;
+        tiffData.width  = width;
+        tiffData.height = height;
 
         uint16_t spp = 1;
         TIFFGetFieldDefaulted(tiff, TIFFTAG_SAMPLESPERPIXEL, &spp);
-        bm.samplesPerPixel = static_cast<uint8_t>(spp);
+        tiffData.samplesPerPixel = static_cast<uint8_t>(spp);
 
         uint16_t bps = 1;
         TIFFGetFieldDefaulted(tiff, TIFFTAG_BITSPERSAMPLE, &bps);
-        bm.bitsPerSample = static_cast<uint8_t>(bps);
-        if (bps > 64) {
-            throw std::runtime_error("TIFF: Images with more than 64 bits per sample are not supported in this version of the library");
+        tiffData.bitsPerSample = static_cast<uint8_t>(bps);
+        if (bps > 32) {
+            throw std::runtime_error("TIFF: Images with more than 32 bits per sample are not supported in this version of the library");
         }
 
-        bm.sampleFormat = getSampleFormat(tiff);
-        if (bm.sampleFormat == SampleFormat::Float && !(bps == 32 || bps == 64)) {
+        tiffData.sampleFormat = getSampleFormat(tiff);
+        if (tiffData.sampleFormat == SampleFormat::Float && bps != 32) {
             throw std::runtime_error("TIFF: Float16 is not supported in this version of the library");
         }
         AlphaInfo alphaInfo = getAlphaInfo(tiff);
 
         uint16_t photo = PHOTOMETRIC_RGB;
-        TIFFGetFieldDefaulted(tiff, TIFFTAG_PHOTOMETRIC, &photo);
+        if (!TIFFGetField(tiff, TIFFTAG_PHOTOMETRIC, &photo)) {
+            throw std::runtime_error("TIFF: Photometric tas is not defined");
+        }
 
         const bool isPalette    = (photo == PHOTOMETRIC_PALETTE);
         const bool isYCbCr      = (photo == PHOTOMETRIC_YCBCR);
         const bool isMinIsWhite = (photo == PHOTOMETRIC_MINISWHITE);
 
         bool hasAlpha = alphaInfo.hasAssocAlpha || alphaInfo.hasUnassAlpha;
-        bool isLAB = false;
 
         if (!isPalette && !isYCbCr) {
-            switch (photo) {
-                case PHOTOMETRIC_MINISBLACK:
-                case PHOTOMETRIC_MINISWHITE:
-                    bm.colorSpace = hasAlpha ? NativeColorSpace::GrayscaleAlpha
-                                             : NativeColorSpace::Grayscale;
-                    break;
-                case PHOTOMETRIC_RGB:
-                    bm.colorSpace = hasAlpha ? NativeColorSpace::RGBA
-                                             : NativeColorSpace::RGB;
-                    break;
-                case PHOTOMETRIC_SEPARATED: // CMYK
-                    bm.colorSpace = hasAlpha ? NativeColorSpace::CMYKA
-                                             : NativeColorSpace::CMYK;
-                    break;
-                case PHOTOMETRIC_CIELAB:
-                case PHOTOMETRIC_ICCLAB:
-                case PHOTOMETRIC_ITULAB:
-                    isLAB = true;
-                    break;
-                default:
-                    bm.colorSpace = NativeColorSpace::Unknown;
-                    break;
-            }
-        }
-
-        uint8_t *icc = nullptr;
-        uint32_t iccSize = 0;
-        retrieveICCProfile(tiff, icc, iccSize);
-        bm.iccProfile = icc;
-        bm.iccProfileSize = iccSize;
-
-        if (bm.iccProfile == nullptr || bm.iccProfileSize == 0) {
-            if (isLAB) {
-                throw std::runtime_error("TIFF: LAB ICC Profile is not defined");
-            }
-
-            switch (bm.colorSpace) {
-                case NativeColorSpace::CMYK:
-                case NativeColorSpace::CMYKA:
-                    // TODO: create CMYK icc profile
-                    break;
-                case NativeColorSpace::Grayscale:
-                case NativeColorSpace::GrayscaleAlpha: {
-                    auto curve = cmsBuildGamma(nullptr, 2.2);
-                    auto profile = cmsCreateGrayProfile(cmsD50_xyY(), curve);
-                    cmsFreeToneCurve(curve);
-                    writeProfileToMem(profile, bm.iccProfile, bm.iccProfileSize);
-                    cmsCloseProfile(profile);
-                    break;
-                } 
-                default: { // rgb
-                    auto profile = cmsCreate_sRGBProfile();
-                    writeProfileToMem(profile, bm.iccProfile, bm.iccProfileSize);
-                    cmsCloseProfile(profile);
-                    break;
-                }
-            }
-        } else if (isLAB) {
-            auto profile = cmsOpenProfileFromMem(bm.iccProfile, bm.iccProfileSize);
-            auto ver = cmsGetProfileVersion(profile);
-            if (ver < 4.0) {
-                bm.colorSpace = hasAlpha ? NativeColorSpace::ALAB : NativeColorSpace::LAB;
-            } else {
-                bm.colorSpace = hasAlpha ? NativeColorSpace::ALAB2 : NativeColorSpace::LAB2;
-            }
+            tiffData.colorSpace = getColorSpace(photo, hasAlpha);
         }
 
         if (isPalette) {
@@ -358,9 +441,9 @@ namespace ImageIO {
             throw std::runtime_error("TIFF: palette color format is not supported in this version of the library");
         }
         else if (isYCbCr) {
-            readYCbCr(tiff, bm);
+            readYCbCr(tiff, tiffData);
         } else {
-            if (bm.colorSpace == NativeColorSpace::Unknown) {
+            if (tiffData.colorSpace == ColorSpace::Unknown) {
                 throw std::runtime_error("TIFF: File does not define image color space or format is not supported");
             }
 
@@ -370,40 +453,53 @@ namespace ImageIO {
 
             const size_t bytesPerSample = (bps + 7) / 8;
             const size_t bytesPerPixel  = spp * bytesPerSample;
-            bm.dataSize = static_cast<size_t>(bm.width) * bm.height * bytesPerPixel;
-            bm.data     = new uint8_t[bm.dataSize];
+            tiffData.dataSize = static_cast<size_t>(tiffData.width) * tiffData.height * bytesPerPixel;
+            tiffData.data     = new uint8_t[tiffData.dataSize];
 
             if (TIFFIsTiled(tiff)) {
-                readTiles(tiff, bm, isSeparate, bytesPerPixel, bytesPerSample);
+                readTiles(tiff, tiffData, isSeparate, bytesPerPixel, bytesPerSample);
             } else {
-                readStrip(tiff, bm, isSeparate, bytesPerPixel, bytesPerSample);
+                readStrip(tiff, tiffData, isSeparate, bytesPerPixel, bytesPerSample);
             }
 
             if (isMinIsWhite) {
-                if (bm.sampleFormat == SampleFormat::Float) {
+                if (tiffData.sampleFormat == SampleFormat::Float) {
                     throw std::runtime_error("TIFF: tag PHOTOMETRIC_MINISWHITE does not support float sample format");
                 }
                 const uint64_t maxVal = (1ULL << bps) - 1;
-                for (size_t i = 0; i < bm.dataSize / bytesPerSample; ++i) {
+                for (size_t i = 0; i < tiffData.dataSize / bytesPerSample; ++i) {
                     uint64_t v = 0;
-                    std::memcpy(&v, bm.data + i * bytesPerSample, bytesPerSample);
+                    std::memcpy(&v, tiffData.data + i * bytesPerSample, bytesPerSample);
                     v = maxVal - v;
-                    std::memcpy(bm.data + i * bytesPerSample, &v, bytesPerSample);
+                    std::memcpy(tiffData.data + i * bytesPerSample, &v, bytesPerSample);
                 }
             }
             if (alphaInfo.hasAssocAlpha) {
-                const size_t numPixels = static_cast<size_t>(bm.width) * bm.height;
-                if (bm.sampleFormat == SampleFormat::Float) {
-                    if (bps == 16)      throw std::runtime_error("TIFF: Float16 is not supported in this version of the library");
-                    else if (bps == 32) unPremultiplyFloat32(bm.data, numPixels, spp);
-                    else if (bps == 64) unPremultiplyFloat64(bm.data, numPixels, spp);
+                const size_t numPixels = static_cast<size_t>(tiffData.width) * tiffData.height;
+                if (tiffData.sampleFormat == SampleFormat::Float) {
+                    if (bps == 32) unPremultiplyFloat32(tiffData.data, numPixels, spp);
+                    else throw std::runtime_error("TIFF: only Float32 is supported in this version of the library");
                 } else {
-                    unPremultiplyInt(bm.data, numPixels, spp, bps);
+                    unPremultiplyInt(tiffData.data, numPixels, spp, bps);
                 }
             }
         }
 
-        return bm;
+        normalizeDepth(tiffData);
+        convertIntToUInt(tiffData);
+
+        auto profile = retrieveICCProfile(tiff, tiffData);
+
+        SampleType sampleType = getSampleType(tiffData);
+        ColorModel colorModel = getColorModel(tiffData);
+
+        uint8_t* buffer = tiffData.data;
+        tiffData.data = nullptr;
+
+        return Bitmap(
+            tiffData.width, tiffData.height, buffer, 
+            sampleType, colorModel, profile
+        );
     }
 
     void saveTIFF(const char* filename, const Bitmap &bitmap, Properties props) {
@@ -412,20 +508,22 @@ namespace ImageIO {
             throw std::runtime_error("TIFF: cannot open file: " + std::string(filename));
         }
 
-        const SampleInfo sampleInfo = getSampleInfo(bitmap.sampleType);
+        Bitmap src = convertForSaving(bitmap);
+
+        const SampleInfo sampleInfo = getSampleInfo(src.sampleType);
         if (sampleInfo.bitsPerSample == 0 || sampleInfo.sampleFormat == 0) {
             TIFFClose(tiff);
             throw std::runtime_error("TIFF: unsupported SampleType");
         }
 
-        const ColorInfo colorInfo = getColorInfo(bitmap.colorSpace.channels);
+        const ColorInfo colorInfo = getColorInfo(src.colorModel);
         if (colorInfo.samplesPerPixel == 0) {
             TIFFClose(tiff);
-            throw std::runtime_error("TIFF: unsupported channel layout");
+            throw std::runtime_error("TIFF: unsupported ColorModel");
         }
 
-        TIFFSetField(tiff, TIFFTAG_IMAGEWIDTH,      bitmap.width);
-        TIFFSetField(tiff, TIFFTAG_IMAGELENGTH,     bitmap.height);
+        TIFFSetField(tiff, TIFFTAG_IMAGEWIDTH,      src.width);
+        TIFFSetField(tiff, TIFFTAG_IMAGELENGTH,     src.height);
         TIFFSetField(tiff, TIFFTAG_BITSPERSAMPLE,   sampleInfo.bitsPerSample);
         TIFFSetField(tiff, TIFFTAG_SAMPLESPERPIXEL, colorInfo.samplesPerPixel);
         TIFFSetField(tiff, TIFFTAG_SAMPLEFORMAT,    sampleInfo.sampleFormat);
@@ -448,11 +546,10 @@ namespace ImageIO {
             static_cast<uint32_t>(icc.size()), icc.data()
         );
 
-        uint8_t* bufPtr  = bitmap.ptr<uint8_t>();
         size_t   rowStep = static_cast<size_t>(bitmap.stride);
 
         for (uint32_t y = 0; y < bitmap.height; ++y) {
-            uint8_t* row = bufPtr + y * rowStep;
+            uint8_t* row = src.buffer + y * rowStep;
 
             if (TIFFWriteScanline(tiff, row, y, 0) < 0) {
                 TIFFClose(tiff);

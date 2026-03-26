@@ -1,7 +1,7 @@
 #ifndef IMAGEIO_IMAGEIO_H
 #define IMAGEIO_IMAGEIO_H
 
-#include "native-bitmap.h"
+#include "bitmap.h"
 
 namespace ImageIO {
     enum class Format {
@@ -18,18 +18,17 @@ namespace ImageIO {
     /// not a supported image type
     Format getFormat(const char *filename);
 
-    /// @brief Opens image from file and keeps its data as it is in the file
-    /// @param filename Path to the file
-    /// @return New instance of NativeBitmap
-    NativeBitmap openNative(const char* filename);
-
     /// @brief Opens image from file and recognizes the image type 
     /// @param sampleType Sample type and depth of output bitmap 
-    /// @param colorSpace Channels format and color profile of output bitmap
-    /// @return New instance of Bitmap    
+    /// @param colorModel Channels format and color profile of output bitmap
+    /// @param iccProfile ICC Profile of the image
+    /// @return New instance of Bitmap
+    /// @note The resulted instance takes the ownership of the iccProfile
+    /// @note If iccProfile is nullptr the default profile is applied
     Bitmap open(const char* filename, 
         SampleType sampleType = SampleType::U8, 
-        ColorSpace colorSpace = ColorSpace::sRGB(), 
+        ColorModel colorModel = ColorModel::RGB,
+        cmsHPROFILE iccProfile = nullptr,
         Properties props = {}
     );
 

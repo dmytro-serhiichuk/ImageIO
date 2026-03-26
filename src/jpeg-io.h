@@ -2,10 +2,9 @@
 #define IMAGEIO_JPEGIO_H
 
 #include "bitmap.h"
-#include "native-bitmap.h"
 
 namespace ImageIO {
-    NativeBitmap loadJPEG(const char* filename);
+    Bitmap loadJPEG(const char* filename);
 
     void saveJPEG(const char* filename, const Bitmap &bitmap, Properties props);
 }

@@ -7,131 +7,103 @@
 #include "properties.h"
 #include <lcms2.h>
 #include <vector>
-#include "color-space.h"
+#include "color-model.h"
+#include "sample-type.h"
 
 namespace ImageIO {
-    enum class SampleType {
-        U8,
-        U16,
-        U32,
-        F32
-    };
-    
     class Bitmap {
-    private:
-        uint8_t* buffer;
-        cmsHPROFILE profile;
     public:
         uint32_t width;
         uint32_t height;
+        uint8_t* buffer;
+        size_t bufferSize;
         size_t totalSamples;
         uint32_t stride;
-        uint8_t samplesPerPixel;
         SampleType sampleType;
-        ColorSpace colorSpace;
+        ColorModel colorModel;
+        cmsHPROFILE profile;
 
-        Bitmap(uint32_t w, uint32_t h, void* b, SampleType st, ColorSpace cs, cmsHPROFILE p) : 
-            width(w), height(h), buffer((uint8_t*)b), colorSpace(cs), sampleType(st), profile(p), samplesPerPixel((uint8_t)cs.channels)
-        {
-            totalSamples = width * height * samplesPerPixel;
-            stride = width * samplesPerPixel * getBytesPerSample(sampleType);
-        }
+        Bitmap();
+        // New instance of the Bitmap takes ownership over passed buffer and icc profile
+        Bitmap(uint32_t w, uint32_t h, void* b, SampleType st, ColorModel cm, cmsHPROFILE p) :
+            width(w), height(h), buffer((uint8_t*)b), sampleType(st), 
+            colorModel(cm), profile(p),
+            totalSamples(w * h * getSamplesPerPixel(cm)),
+            bufferSize(w * h * getSamplesPerPixel(cm) * getBytesPerSample(st)),
+            stride(w * getBytesPerSample(st) * getSamplesPerPixel(cm)) {}
         Bitmap(const Bitmap& other);
         Bitmap(Bitmap&& other) noexcept;
         ~Bitmap();
 
         Bitmap copy() const;
 
-        template <typename T>
-        T& operator[](size_t index) {
-            if (index >= bufferLength) throw std::out_of_range("Index of range");            
-            return reinterpret_cast<T*>(buffer)[index];
-        }
-
-        template <typename T>
-        const T& operator[](size_t index) const {
-            if (index >= bufferLength) throw std::out_of_range("Index of range");            
-            return reinterpret_cast<T*>(buffer)[index];
-        }
-
         Bitmap& operator=(Bitmap&& nb);
-
         Bitmap& operator=(const Bitmap& nb);
-
-        /// @brief Returns pointer to bitmap's buffer        
-        template <typename T>
-        inline T* ptr() {
-            return reinterpret_cast<T*>(buffer);
-        }
-
-        /// @brief Returns pointer to bitmap's buffer        
-        template <typename T>
-        inline T* ptr() const {
-            return reinterpret_cast<T*>(buffer);
-        }
-
-        /// @brief Returns size of the buffer in bytes        
-        inline size_t sizeOfBuffer() const {
-            return totalSamples * Bitmap::getBytesPerSample(sampleType);
-        }
 
         /// @brief Converts bitmap's sample type
         /// @return New instance of a bitmap with converted sample type
         /// @note Returns a copy of the bitmap if newSampleType is equal to bitmap's sample type
         inline Bitmap convertSampleType(const SampleType newSampleType, Properties props = {}) const {
-            return convertTo(newSampleType, colorSpace, props);
+            return convertTo(newSampleType, colorModel, nullptr, props);
         }
 
-        /// @brief Converts bitmap's color space
-        /// @return New instance of a bitmap with converted color space
-        /// @note Returns a copy of the bitmap if newColorSpace is equal to bitmap's color space
-        inline Bitmap convertColorSpace(const ColorSpace newColorSpace, Properties props = {}) const {
-            return convertTo(sampleType, newColorSpace, props);
+        /// @brief Converts bitmap's color model
+        /// @return New instance of a bitmap with converted color model and new color profile
+        /// @note Returns a copy of the bitmap if newColorModel is equal to bitmap's color model
+        /// @note Always recreates the bitmap if newProfile is explicitly defined
+        /// @note The resulted bitmap takes ownership over the passed icc profile
+        inline Bitmap convertColorModel(const ColorModel newColorModel, const cmsHPROFILE newProfile = nullptr, Properties props = {}) const {
+            return convertTo(sampleType, newColorModel, newProfile, props);
         }
 
-        /// @brief Converts bitmap's sample type and color space
+        /// @brief Converts bitmap's sample type and color model
         /// @return New instance of bitmap with converted values
-        /// @note Returns copy of the bitmap if newSampleType and newColorSpace are equal to current bitmap's values
-        Bitmap convertTo(const SampleType newSampleType, const ColorSpace newColorSpace, Properties props = {}) const;
-        
-        /// @brief Returns size of buffer element depends on bitmap's depth        
-        static size_t getBytesPerSample(const SampleType sampleType);
+        /// @note Returns a copy of the bitmap if newSampleType and newColorModel are equal to current bitmap's values
+        /// @note Always recreates the bitmap if newProfile is explicitly defined
+        /// @note The resulted bitmap takes ownership over the passed icc profile
+        Bitmap convertTo(const SampleType newSampleType, const ColorModel newColorModel, const cmsHPROFILE newProfile = nullptr, Properties props = {}) const;
 
         /// @brief Returns ICC Profile of the bitmap
         /// @return ICC Profile stored in memory
         std::vector<uint8_t> getICCProfile() const;
     private:
-        Bitmap convertByLcms2(SampleType newSampleType, ColorSpace newColorSpace) const;
+        Bitmap convertByLcms2(SampleType newSampleType, ColorModel newColorSpace, const cmsHPROFILE newProfile = nullptr) const;
 
         template <typename I, typename O>
-        O* _convertTo(SampleType newSampleType, ColorSpace newColorSpace, Properties props) const {
-            size_t newBufferLength = width * height * (size_t)newColorSpace.channels; 
+        O* _convertTo(SampleType newSampleType, ColorModel newColorModel, Properties props) const {
+            size_t newBufferLength = width * height * getSamplesPerPixel(newColorModel); 
             O* dst = new O[newBufferLength];
-            I* src = ptr<I>();
+            I* src = (I*)buffer;
 
-            Channels inChannels  = colorSpace.channels;
-            Channels outChannels = newColorSpace.channels;
-
-            if (inChannels == outChannels) {
+            if (colorModel == newColorModel) {
                 for (size_t i = 0; i < totalSamples; i++) {
                     dst[i] = Bitmap::convertSampleValue<I, O>(src[i]);
                 }
-            } else if (outChannels == Channels::RGB) /* to RGB */ {
-                if (inChannels == Channels::RGBA) /* from RGBA */ {
+            } else if (newColorModel == ColorModel::RGB) /* to RGB */ {
+                if (colorModel == ColorModel::RGBA) /* from RGBA */ {
                     for (size_t i = 0, newI = 0; i < totalSamples; i+=4, newI+=3) {
                         dst[newI]     = Bitmap::convertSampleValue<I, O>(src[i]);
                         dst[newI + 1] = Bitmap::convertSampleValue<I, O>(src[i + 1]);
                         dst[newI + 2] = Bitmap::convertSampleValue<I, O>(src[i + 2]);
                     }
                 }
-            } else if (outChannels == Channels::Grayscale) /* to Grayscale */ {
-                if (inChannels == Channels::GrayscaleAlpha) /* from Grayscale Alpha */ {
+            } else if (newColorModel == ColorModel::GRAY) /* to Grayscale */ {
+                if (colorModel == ColorModel::GRAYA) /* from Grayscale Alpha */ {
                     for (size_t i = 0, newI = 0; i < totalSamples; i+=2, newI+=1) {
                         dst[newI] = Bitmap::convertSampleValue<I, O>(src[i]);
                     }
                 }
-            } else if (outChannels == Channels::RGBA) { /* to RGBA */
-                if (inChannels == Channels::RGB) { /* from RGB */
+            } else if (newColorModel == ColorModel::CMYK) /* to CMYK */ {
+                if (colorModel == ColorModel::CMYKA) /* to CMYKA */ {
+                    for (size_t i = 0, newI = 0; i < totalSamples; i+=5, newI+=4) {
+                        dst[newI]     = Bitmap::convertSampleValue<I, O>(src[i]);
+                        dst[newI + 1] = Bitmap::convertSampleValue<I, O>(src[i + 1]);
+                        dst[newI + 2] = Bitmap::convertSampleValue<I, O>(src[i + 2]);
+                        dst[newI + 3] = Bitmap::convertSampleValue<I, O>(src[i + 3]);
+                    }
+                }
+            } else if (newColorModel == ColorModel::RGBA) { /* to RGBA */
+                if (colorModel == ColorModel::RGB) { /* from RGB */
                     for (size_t i = 0, newI = 0; i < totalSamples; i+=3, newI+=4) {
                         dst[newI]     = Bitmap::convertSampleValue<I, O>(src[i]);
                         dst[newI + 1] = Bitmap::convertSampleValue<I, O>(src[i + 1]);
@@ -139,11 +111,21 @@ namespace ImageIO {
                         dst[newI + 3] = Bitmap::convertSampleValue<uint8_t, O>(255);
                     }
                 }
-            } else if (outChannels == Channels::GrayscaleAlpha) { /* to GrayA */
-                if (inChannels == Channels::Grayscale) { /* from Gray */
+            } else if (newColorModel == ColorModel::GRAYA) { /* to GrayA */
+                if (colorModel == ColorModel::GRAY) { /* from Gray */
                     for (size_t i = 0, newI = 0; i < totalSamples; i+=1, newI+=2) {
                         dst[newI] = Bitmap::convertSampleValue<I, O>(src[i]);
                         dst[newI + 1] = Bitmap::convertSampleValue<uint8_t, O>(255);
+                    }
+                }
+            } else if (newColorModel == ColorModel::CMYKA) { /* to CMYKA */
+                if (colorModel == ColorModel::CMYK) { /* from CMYK */
+                    for (size_t i = 0, newI = 0; i < totalSamples; i+=4, newI+=5) {
+                        dst[newI]     = Bitmap::convertSampleValue<I, O>(src[i]);
+                        dst[newI + 1] = Bitmap::convertSampleValue<I, O>(src[i + 1]);
+                        dst[newI + 2] = Bitmap::convertSampleValue<I, O>(src[i + 2]);
+                        dst[newI + 3] = Bitmap::convertSampleValue<I, O>(src[i + 3]);
+                        dst[newI + 4] = Bitmap::convertSampleValue<uint8_t, O>(255);
                     }
                 }
             }

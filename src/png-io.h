@@ -2,10 +2,9 @@
 #define IMAGEIO_PNGIO_H
 
 #include "bitmap.h"
-#include "native-bitmap.h"
 
 namespace ImageIO {
-    NativeBitmap loadPNG(const char* filename);
+    Bitmap loadPNG(const char* filename);
 
     void savePNG(const char* filename, const Bitmap &bitmap, Properties props);
 }

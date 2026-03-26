@@ -4,30 +4,17 @@
 
 namespace ImageIO {
     namespace {
-        void writeProfileToMem(cmsHPROFILE profile, uint8_t*& icc, uint32_t &iccSize) {
-            cmsSaveProfileToMem(profile, NULL, &iccSize);
-            icc = new uint8_t[iccSize]();
-            cmsSaveProfileToMem(profile, icc, &iccSize);
-        }
-
-        void retrieveICCProfile(png_structp png, png_infop info, uint8_t*& icc, uint32_t &iccSize) {
+        inline cmsHPROFILE retrieveICCProfile(png_structp png, png_infop info) {
             png_charp    icc_name;
             int          icc_compression;
             png_bytep    icc_data;
             png_uint_32  icc_length;
 
             if (png_get_iCCP(png, info, &icc_name, &icc_compression, &icc_data, &icc_length) == PNG_INFO_iCCP) {
-                iccSize = icc_length;
-                icc = new uint8_t[iccSize];
-                memcpy(icc, icc_data, icc_length);
-                iccSize = icc_length;
-                return;
+                return cmsOpenProfileFromMem(icc_data, icc_length);
             }
             if (png_get_sRGB(png, info, nullptr) == PNG_INFO_sRGB) {
-                auto profile = cmsCreate_sRGBProfile();
-                writeProfileToMem(profile, icc, iccSize);
-                cmsCloseProfile(profile);
-                return;
+                return cmsCreate_sRGBProfile();
             }
             
             double wx, wy, rx, ry, gx, gy, bx, by;
@@ -49,13 +36,9 @@ namespace ImageIO {
                 cmsToneCurve *curve = cmsBuildGamma(NULL, 1.0 / gamma_value);
                 cmsToneCurve *curves[3] = { curve, curve, curve };
 
-                cmsHPROFILE profile = cmsCreateRGBProfile(
+                return cmsCreateRGBProfile(
                     &white_point, &primaries, curves
                 );
-
-                cmsFreeToneCurve(curve);
-                writeProfileToMem(profile, icc, iccSize);
-                cmsCloseProfile(profile);
             } else if (has_chrm && !has_gama) { // assume sRGB gamma
                 cmsCIExyYTRIPLE primaries = {
                     { rx, ry, 1.0 }, { gx, gy, 1.0 }, { bx, by, 1.0 }
@@ -67,47 +50,51 @@ namespace ImageIO {
                 );
                 cmsToneCurve *curves[3] = { srgb_trc, srgb_trc, srgb_trc };
 
-                cmsHPROFILE profile = cmsCreateRGBProfile(
+                return cmsCreateRGBProfile(
                     &white_point, &primaries, curves
                 );
-                cmsFreeToneCurve(srgb_trc);
-                writeProfileToMem(profile, icc, iccSize);
-                cmsCloseProfile(profile);
             } else {
-                auto profile = cmsCreate_sRGBProfile();
-                writeProfileToMem(profile, icc, iccSize);
-                cmsCloseProfile(profile);
+                return cmsCreate_sRGBProfile();
             }
         }
 
-        typedef struct {
-            uint8_t samplesPerPixel;
-            NativeColorSpace colorSpace;
-        } PixelFormatInfo;
-
-        PixelFormatInfo resolvePixelFormat(uint8_t colorSpace) {
+        inline ColorModel resolveColorModel(uint8_t colorSpace) {
             switch (colorSpace) {
-                case PNG_COLOR_TYPE_GRAY:       return { 1, NativeColorSpace::Grayscale };
-                case PNG_COLOR_TYPE_GRAY_ALPHA: return { 2, NativeColorSpace::GrayscaleAlpha };
-                case PNG_COLOR_TYPE_RGB:        return { 3, NativeColorSpace::RGB };
-                case PNG_COLOR_TYPE_RGB_ALPHA:  return { 4, NativeColorSpace::RGBA };
-                default:                        return { 4, NativeColorSpace::RGBA };
+                case PNG_COLOR_TYPE_GRAY:       return ColorModel::GRAY;
+                case PNG_COLOR_TYPE_GRAY_ALPHA: return ColorModel::GRAYA;
+                case PNG_COLOR_TYPE_RGB:        return ColorModel::RGB;
+                case PNG_COLOR_TYPE_RGB_ALPHA:  return ColorModel::RGBA;
+                default:                        return ColorModel::RGBA;
             }
         }
 
-        inline int getOutColorType(const Channels channels) {
-            switch (channels) {
-                case Channels::Grayscale:      return PNG_COLOR_TYPE_GRAY;
-                case Channels::GrayscaleAlpha: return PNG_COLOR_TYPE_GA;
-                case Channels::RGB:            return PNG_COLOR_TYPE_RGB;
-                case Channels::RGBA:           return PNG_COLOR_TYPE_RGBA;
+        inline Bitmap convertForSaving(const Bitmap &src) {
+            bool supportedDepth = src.sampleType == SampleType::U8 || src.sampleType == SampleType::U16;
+            SampleType outSampleType = supportedDepth ? src.sampleType : SampleType::U16;
+
+            switch (src.colorModel) {
+                case ColorModel::XYZ: 
+                case ColorModel::CMYK:
+                case ColorModel::CMYKA:
+                    return src.convertTo(outSampleType, ColorModel::RGB);
+                default:
+                    return src.convertSampleType(outSampleType);
+            }
+        }
+
+        inline int getOutColorType(const ColorModel colorModel) {
+            switch (colorModel) {
+                case ColorModel::GRAY:  return PNG_COLOR_TYPE_GRAY;
+                case ColorModel::GRAYA: return PNG_COLOR_TYPE_GA;
+                case ColorModel::RGB:   return PNG_COLOR_TYPE_RGB;
+                case ColorModel::RGBA:  return PNG_COLOR_TYPE_RGBA;
                 default:
                     throw std::runtime_error("PNG: Unsupported channels format");
             }
         }
     }
 
-    NativeBitmap loadPNG(const char *filename) {
+    Bitmap loadPNG(const char *filename) {
         FILE *file = fopen(filename, "rb");
         if (file == nullptr) {
             throw std::runtime_error("Failed to open file");
@@ -151,10 +138,7 @@ namespace ImageIO {
         bit_depth         = png_get_bit_depth(png, info);
         color_type        = png_get_color_type(png, info);
 
-        uint8_t* icc = nullptr;
-        uint32_t icc_size = 0;;
-
-        retrieveICCProfile(png, info, icc, icc_size);
+        auto profile = retrieveICCProfile(png, info);
         
         size_t data_size = row_stride * height;
         uint8_t* data = new uint8_t[data_size];
@@ -170,19 +154,16 @@ namespace ImageIO {
         png_destroy_read_struct(&png, &info, nullptr);
         fclose(file);
 
-        PixelFormatInfo pfi = resolvePixelFormat(color_type);
+        SampleType sampleType = bit_depth == 8 ? SampleType::U8 : SampleType::U16;
+        ColorModel colorModel = resolveColorModel(color_type);
 
-        return NativeBitmap { 
-            width, height, pfi.samplesPerPixel, bit_depth, SampleFormat::UInt, 
-            pfi.colorSpace, icc, icc_size, data, data_size
-        };
+        return Bitmap(width, height, data, sampleType, colorModel, profile);
     }
 
     void savePNG(const char *filename, const Bitmap &bitmap, Properties props) {
-        bool supportedDepth = bitmap.sampleType == SampleType::U8 || bitmap.sampleType == SampleType::U16;
-        Bitmap src = supportedDepth ? bitmap.copy() : bitmap.convertSampleType(SampleType::U16);
+        Bitmap src = convertForSaving(bitmap);
 
-        int colorType = getOutColorType(src.colorSpace.channels);
+        int colorType = getOutColorType(src.colorModel);
 
         png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
         if (!png) {
@@ -209,7 +190,7 @@ namespace ImageIO {
 
         png_init_io(png, file);
 
-        int bitDepth = src.getBytesPerSample(src.sampleType) * 8;
+        int bitDepth = getBytesPerSample(src.sampleType) * 8;
 
         png_set_IHDR(
             png, info, src.width, src.height, bitDepth, colorType, 
@@ -230,7 +211,7 @@ namespace ImageIO {
             png_set_swap(png);
         }
 
-        const uint8_t* bufPtr = src.ptr<uint8_t>();
+        const uint8_t* bufPtr = src.buffer;
         const size_t rowBytes = static_cast<size_t>(src.stride);
 
         std::vector<png_bytep> rows(src.height);

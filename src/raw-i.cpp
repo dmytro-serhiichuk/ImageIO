@@ -4,13 +4,7 @@
 
 namespace ImageIO {
     namespace {
-        void writeProfileToMem(cmsHPROFILE profile, uint8_t*& icc, uint32_t &iccSize) {
-            cmsSaveProfileToMem(profile, NULL, &iccSize);
-            icc = new uint8_t[iccSize]();
-            cmsSaveProfileToMem(profile, icc, &iccSize);
-        }
-
-        void retrieveICCProfile(const LibRaw &processor, uint8_t*& icc, uint32_t &iccSize) {
+        cmsHPROFILE retrieveICCProfile(const LibRaw &processor) {
             cmsHPROFILE hProfile = cmsCreateProfilePlaceholder(nullptr);
             cmsSetDeviceClass(hProfile, cmsSigColorSpaceClass);
             cmsSetColorSpace(hProfile, cmsSigXYZData);
@@ -50,8 +44,7 @@ namespace ImageIO {
                 cmsPipelineFree(lut);
             }
             
-            writeProfileToMem(hProfile, icc, iccSize);
-            cmsCloseProfile(hProfile);
+            return hProfile;
         }
     }
 
@@ -66,7 +59,7 @@ namespace ImageIO {
         return false;
     }
 
-    NativeBitmap loadRAW(const char *file) {
+    Bitmap loadRAW(const char *file) {
         LibRaw processor;
         if (processor.open_file(file) != LIBRAW_SUCCESS) {
             processor.recycle();
@@ -94,11 +87,9 @@ namespace ImageIO {
             throw std::runtime_error("RAW: Getting processed image failed");
         }
 
-        uint8_t* icc = nullptr;
-        uint32_t iccSize = 0;
-        retrieveICCProfile(processor, icc, iccSize);
+        auto profile = retrieveICCProfile(processor);
 
-        uint32_t bigWidth = processed_image->width;
+        uint32_t bigWidth  = processed_image->width;
         uint32_t bigHeight = processed_image->height;
 
         uint32_t leftOffset   = processor.imgdata.sizes.raw_inset_crops[0].cleft - processor.imgdata.sizes.left_margin;
@@ -162,10 +153,9 @@ namespace ImageIO {
         processor.dcraw_clear_mem(processed_image);
         processor.recycle();
 
-        return NativeBitmap { 
-            outputWidth, outputHeight, 3, 16, SampleFormat::UInt, 
-            NativeColorSpace::XYZ, icc, iccSize, (uint8_t*)buffer, 
-            outputWidth * outputHeight * 3 * 2
-        };
+        return Bitmap(
+            outputWidth, outputHeight, buffer, 
+            SampleType::U16, ColorModel::XYZ, profile
+        );
     }
 }

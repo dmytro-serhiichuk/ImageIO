@@ -27,14 +27,17 @@ int main() {
     ImageIO::Bitmap bitmap = ImageIO::open(
         filename, 
         ImageIO::SampleType::U16,
-        ImageIO::ColorSpace::sRGB()
+        ImageIO::ColorModel::RGB
     );
-    bitmap = bitmap.convertColorSpace(ImageIO::ColorSpace::sRGBA());
+    
+    bitmap = bitmap.convertColorModel(ImageIO::ColorModel::CMYK);
 
     ImageIO::Properties props{};
     props.jpegQuality = 100;
 
-    ImageIO::save("D:\\sRGBA.png", bitmap, props);
+    ImageIO::save("D:\\sRGBA.jpg", bitmap, props);
+    // ImageIO::save("D:\\sRGBA.png", bitmap, props);
+    // ImageIO::save("D:\\sRGBA.tiff", bitmap, props);
     // ImageIO::save("D:\\0.png", bitmap, props);
     // ImageIO::save("D:\\0.tiff", bitmap, props);
 

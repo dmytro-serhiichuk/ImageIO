@@ -53,33 +53,29 @@ namespace ImageIO {
         return Format::UNDEFINED;
     }
 
-    NativeBitmap openNative(const char *filename) {
+    Bitmap open(const char *filename, SampleType sampleType, ColorModel colorModel, cmsHPROFILE iccProfile, Properties props) {
         Format format = getFormat(filename);
-        
-        NativeBitmap nativeBitmap {};
+
+        Bitmap bitmap {};
  
         if (format == Format::JPG) {
-            nativeBitmap = loadJPEG(filename);
+            bitmap = loadJPEG(filename);
         }
         else if (format == Format::PNG) {
-            nativeBitmap = loadPNG(filename);
+            bitmap = loadPNG(filename);
         }
         else if (format == Format::RAW) {
-            nativeBitmap = loadRAW(filename);
+            bitmap = loadRAW(filename);
         }
         else if (format == Format::TIFF) {
-            nativeBitmap = loadTIFF(filename);
+            bitmap = loadTIFF(filename);
         } else {
             throw std::runtime_error("File format is not supported");
         }
 
-        return nativeBitmap;
-    }
-
-    Bitmap open(const char *filename, SampleType sampleType, ColorSpace colorSpace, Properties props) {
-        auto native = openNative(filename);
-
-        return native.toBitmap(sampleType, colorSpace);        
+        if (sampleType != bitmap.sampleType || colorModel != bitmap.colorModel || iccProfile != nullptr) {
+            return bitmap.convertTo(sampleType, colorModel, iccProfile);
+        }
     }
 
     void save(const char *filename, Bitmap &bitmap, Properties props) {

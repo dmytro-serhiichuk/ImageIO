@@ -2,55 +2,103 @@
 #include <turbojpeg.h>
 #include <type_traits>
 #include <stdexcept>
+#include "profile-management.h"
 
 namespace ImageIO {
-    namespace
-    {
+    namespace {
         typedef struct {
             TJPF jpegPixelFormat;
-            uint8_t samplesPerPixel;
-            NativeColorSpace colorSpace;
+            ColorModel colorModel;
         } PixelFormatInfo;
 
         PixelFormatInfo resolvePixelFormat(TJCS colorSpace) {
             switch (colorSpace) {
-                case TJCS_GRAY:  return { TJPF_GRAY, 1, NativeColorSpace::Grayscale };
-                case TJCS_RGB:   return { TJPF_RGB,  3, NativeColorSpace::RGB };
-                case TJCS_YCbCr: return { TJPF_RGB,  3, NativeColorSpace::RGB };
-                case TJCS_CMYK:  return { TJPF_CMYK, 4, NativeColorSpace::CMYK };
-                case TJCS_YCCK:  return { TJPF_CMYK, 4, NativeColorSpace::CMYK };
-                default:         return { TJPF_RGB,  3, NativeColorSpace::RGB };
+                case TJCS_GRAY:  return { TJPF_GRAY, ColorModel::GRAY };
+                case TJCS_RGB:   return { TJPF_RGB,  ColorModel::RGB };
+                case TJCS_YCbCr: return { TJPF_RGB,  ColorModel::RGB };
+                case TJCS_CMYK:  return { TJPF_CMYK, ColorModel::CMYK };
+                case TJCS_YCCK:  return { TJPF_CMYK, ColorModel::CMYK };
+                default:         return { TJPF_RGB,  ColorModel::RGB };
             }
         }
 
-        void writeProfileToMem(cmsHPROFILE profile, uint8_t*& icc, uint32_t &iccSize) {
-            cmsSaveProfileToMem(profile, NULL, &iccSize);
-            icc = new uint8_t[iccSize]();
-            cmsSaveProfileToMem(profile, icc, &iccSize);
+        cmsHPROFILE retrieveICCProfile(tjhandle decompressor, ColorModel colorModel) {
+            size_t iccSize = 0;
+            uint8_t* iccBuffer = nullptr;
+            
+            struct Guard { uint8_t* b; ~Guard() { delete [] b; } } guard{iccBuffer}; 
+
+            if (tj3GetICCProfile(decompressor, &iccBuffer, &iccSize) < 0 && tj3GetErrorCode(decompressor) != 0) {
+                tj3Destroy(decompressor);
+                throw std::runtime_error("Failed to get icc profile");
+            }
+
+
+            if (iccBuffer != nullptr && iccSize != 0) {
+                return cmsOpenProfileFromMem(iccBuffer, iccSize);
+            } else {
+                if (colorModel == ColorModel::RGB) {
+                    return cmsCreate_sRGBProfile();
+                } else if (colorModel == ColorModel::GRAY) {
+                    return createDefaultGrayProfile();
+                } else {
+                    return createCMYKProfile();
+                }
+            }
         }
 
-        int getPixelFormat(const Channels channels) {
-            switch (channels) {
-                case Channels::RGB:
-                    return TJPF_RGB;
-                case Channels::RGBA:
-                    return TJPF_RGBA;
-                case Channels::Grayscale:
-                    return TJPF_GRAY;
-                case Channels::GrayscaleAlpha:
-                    return TJPF_GRAY;
+        Bitmap convertForSaving(const Bitmap &src) {
+            if (src.colorModel == ColorModel::GRAYA) {
+                return src.convertTo(SampleType::U8, ColorModel::GRAY);
+            } else if (src.colorModel == ColorModel::XYZ) {
+                return src.convertTo(SampleType::U8, ColorModel::RGB);
+            } else if (src.colorModel == ColorModel::CMYKA) {
+                return src.convertTo(SampleType::U8, ColorModel::CMYK);
+            } else {
+                return src.convertSampleType(SampleType::U8);
+            }
+        }
+
+        int getColorSpace(const ColorModel colorModel) {
+            switch (colorModel) {
+                case ColorModel::RGB:
+                case ColorModel::RGBA:
+                    return TJCS_RGB;
+                case ColorModel::GRAY:
+                case ColorModel::GRAYA:
+                    return TJCS_GRAY;
+                case ColorModel::CMYK:
+                case ColorModel::CMYKA:
+                    return TJCS_YCCK;
                 default:
-                    throw std::runtime_error("JPG: Invalid channels configuration");
+                    throw std::runtime_error("JPG: Unsupported color model");
+            } 
+        }
+
+        int getPixelFormat(const ColorModel colorModel) {
+            switch (colorModel) {
+                case ColorModel::RGB:
+                    return TJPF_RGB;
+                case ColorModel::RGBA:
+                    return TJPF_RGBA;
+                case ColorModel::GRAY:
+                    return TJPF_GRAY;
+                case ColorModel::CMYK:
+                    return TJPF_CMYK;
+                default:
+                    throw std::runtime_error("JPG: Unsupported color model");
             }
         }
 
-        int getSubSamp(const Channels channels) {
-            switch (channels) {
-                case Channels::RGB:
-                case Channels::RGBA:
+        int getSubSamp(const ColorModel colorModel) {
+            switch (colorModel) {
+                case ColorModel::RGB:
+                case ColorModel::RGBA:
+                case ColorModel::CMYK:
+                case ColorModel::CMYKA:
                     return TJSAMP_444;
-                case Channels::Grayscale:
-                case Channels::GrayscaleAlpha:
+                case ColorModel::GRAY:
+                case ColorModel::GRAYA:
                     return TJSAMP_GRAY;
                 default:
                     throw std::runtime_error("JPG: Invalid channels configuration");
@@ -58,7 +106,8 @@ namespace ImageIO {
         }
     }
     
-    NativeBitmap loadJPEG(const char* filename) {
+    // TODO: fix cmyk colors
+    Bitmap loadJPEG(const char* filename) {
         FILE *file = fopen(filename, "rb");
         if (file == nullptr) {
             throw std::runtime_error("Failed to open file");
@@ -94,21 +143,8 @@ namespace ImageIO {
 
         PixelFormatInfo pfi = resolvePixelFormat(colorSpace);
 
-        size_t iccSize = 0;
-        uint8_t* iccBuffer = nullptr;
-        if (tj3GetICCProfile(decompressor, &iccBuffer, &iccSize) < 0 && tj3GetErrorCode(decompressor) != 0) {
-            tj3Destroy(decompressor);
-            throw std::runtime_error("Failed to get icc profile");
-        }
-        if (iccSize == 0 || iccBuffer == nullptr) {
-            uint32_t s = 0;
-            auto profile = cmsCreate_sRGBProfile();
-            writeProfileToMem(profile, iccBuffer, s);
-            cmsCloseProfile(profile);
-            iccSize = s;
-        }
-
-        size_t bufferSize = width * height * pfi.samplesPerPixel;
+        auto samplesPerPixel = getSamplesPerPixel(pfi.colorModel);
+        size_t bufferSize = width * height * samplesPerPixel;
         uint8_t* buffer = new uint8_t[bufferSize];
         
         if (tj3Decompress8(decompressor, jpegData.data(), length, buffer, 0, pfi.jpegPixelFormat) < 0) {
@@ -116,17 +152,18 @@ namespace ImageIO {
             throw std::runtime_error("Failed to decompress jpeg");
         }
 
+        cmsHPROFILE profile = retrieveICCProfile(decompressor, pfi.colorModel);
+
         tj3Destroy(decompressor);
 
-        return NativeBitmap { 
-            (uint32_t)width, (uint32_t)height, pfi.samplesPerPixel, 
-            (uint8_t)precision, SampleFormat::UInt, pfi.colorSpace, 
-            iccBuffer, iccSize, buffer, bufferSize
-        };
+        return Bitmap(
+            (uint32_t)width, (uint32_t)height, 
+            buffer, SampleType::U8, pfi.colorModel, profile
+        );
     }
 
     void saveJPEG(const char* filename, const Bitmap &bitmap, Properties props) {
-        Bitmap convertedBitmap = bitmap.convertSampleType(SampleType::U8);
+        Bitmap convertedBitmap = convertForSaving(bitmap);
 
         size_t jpegSize = 0;
         uint8_t* jpegBuf = nullptr;
@@ -139,18 +176,18 @@ namespace ImageIO {
         jpegSize = 0;
         jpegBuf = nullptr;
 
-        int pixelFormat = getPixelFormat(convertedBitmap.colorSpace.channels);
-        int subsamp = getSubSamp(convertedBitmap.colorSpace.channels);
-
-        auto buffer = convertedBitmap.ptr<uint8_t>();
+        int pixelFormat = getPixelFormat(convertedBitmap.colorModel);
+        int subsamp = getSubSamp(convertedBitmap.colorModel);
+        int colorSpace = getColorSpace(convertedBitmap.colorModel);
 
         tj3Set(jpegCompressor, TJPARAM_QUALITY, props.jpegQuality);
         tj3Set(jpegCompressor, TJPARAM_SUBSAMP , subsamp);
+        tj3Set(jpegCompressor, TJPARAM_COLORSPACE, colorSpace);
 
         auto profile = convertedBitmap.getICCProfile();
         tj3SetICCProfile(jpegCompressor, profile.data(), profile.size());
 
-        if (tj3Compress8(jpegCompressor, buffer, convertedBitmap.width, 0, convertedBitmap.height, pixelFormat, &jpegBuf, &jpegSize) < 0) {
+        if (tj3Compress8(jpegCompressor, convertedBitmap.buffer, convertedBitmap.width, 0, convertedBitmap.height, pixelFormat, &jpegBuf, &jpegSize) < 0) {
             tj3Destroy(jpegCompressor);
             throw std::runtime_error("Failed to compress jpeg");
         }
