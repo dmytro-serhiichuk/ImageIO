@@ -144,7 +144,7 @@ namespace ImageIO {
     }
 
     Bitmap Bitmap::convertTo(const SampleType newSampleType, const ColorModel newColorModel, const cmsHPROFILE newProfile, Properties props) const {
-        if (sampleType == newSampleType && colorModel == newColorModel) return copy();
+        if (sampleType == newSampleType && colorModel == newColorModel && newProfile == nullptr) return copy();
 
         if (!isColorModelsShareProfiles(colorModel, newColorModel) || newProfile != nullptr) {
             return convertByLcms2(newSampleType, newColorModel, newProfile);

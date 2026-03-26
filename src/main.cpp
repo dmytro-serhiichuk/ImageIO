@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "image-io.h"
+#include "profile-management.h"
 
 int main() {
     const char* filename = "D:\\2.jpg";
@@ -24,10 +25,15 @@ int main() {
 
     // cmsDoTransform(t, pixel, res, 1);
 
+    auto AdobeRGB = ImageIO::createAdobeRGBProfile();
+    auto ProPhotoRGB = ImageIO::createProPhotoProfile();
+    auto WideGamut = ImageIO::createWideGamutProfile();
+
     ImageIO::Bitmap bitmap = ImageIO::open(
         filename, 
         ImageIO::SampleType::U16,
-        ImageIO::ColorModel::GRAYA
+        ImageIO::ColorModel::RGB,
+        WideGamut
     );
 
     ImageIO::Properties props{};

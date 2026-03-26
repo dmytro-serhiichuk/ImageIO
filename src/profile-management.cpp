@@ -1,5 +1,8 @@
 #include "profile-management.h"
-#include "cmyk_profile_data.h"
+#include "profiles-sources/adobe_rgb_profile_data.h"
+#include "profiles-sources/cmyk_profile_data.h"
+#include "profiles-sources/pro_photo_profile_data.h"
+#include "profiles-sources/wide_gamut_profile_data.h"
 #include <cstdint>
 #include <stdexcept>
 
@@ -27,7 +30,17 @@ namespace ImageIO {
     cmsHPROFILE createCMYKProfile() {
         return cmsOpenProfileFromMem(USWebCoatedSWOP_icc, USWebCoatedSWOP_icc_len);
     }
-    cmsUInt32Number buildLcmsType(ColorModel colorModel, SampleType sampleType) {
+    cmsHPROFILE createAdobeRGBProfile() {
+        return cmsOpenProfileFromMem(AdobeRGB1998_icc, AdobeRGB1998_icc_len);
+    }
+    cmsHPROFILE createProPhotoProfile() {
+        return cmsOpenProfileFromMem(ISO22028_2_ROMM_RGB_icc, ISO22028_2_ROMM_RGB_icc_len);
+    }
+    cmsHPROFILE createWideGamutProfile() {
+        return cmsOpenProfileFromMem(WideGamut_icc, WideGamut_icc_len);
+    }
+    cmsUInt32Number buildLcmsType(ColorModel colorModel, SampleType sampleType)
+    {
         cmsUInt32Number colorSpaceFlag = 0;
         cmsUInt32Number channelsCount = 0;
         cmsUInt32Number extraChannels = 0;
