@@ -3,7 +3,7 @@
 #include "profile-management.h"
 
 int main() {
-    const char* filename = "D:\\2.jpg";
+    const char* filename = "D:\\1.png";
 
     // uint8_t pixel[3] = { 54, 54, 54 };
     // uint8_t res[3];

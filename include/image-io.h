@@ -20,7 +20,7 @@ namespace ImageIO {
 
     /// @brief Opens image from file and recognizes the image type 
     /// @param sampleType Sample type and depth of output bitmap 
-    /// @param colorModel Channels format and color profile of output bitmap
+    /// @param colorModel Color model of the output bitmap
     /// @param iccProfile ICC Profile of the image
     /// @return New instance of Bitmap
     /// @note The resulted instance takes the ownership of the iccProfile

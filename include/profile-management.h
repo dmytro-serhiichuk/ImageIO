@@ -22,6 +22,7 @@ namespace ImageIO {
 
     // Builds a lcms type for profiles convertations based on color model and sample type
     cmsUInt32Number buildLcmsType(ColorModel colorModel, SampleType sampleType);
+    // Creates a default profile for passed color model
     cmsHPROFILE createProfileFromColorModel(ColorModel colorModel);
 }
 

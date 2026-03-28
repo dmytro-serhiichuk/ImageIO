@@ -1,10 +1,10 @@
 #include "png-io.h"
 #include <libpng16/png.h>
-#include <lcms2.h>
+#include "profile-management.h"
 
 namespace ImageIO {
     namespace {
-        inline cmsHPROFILE retrieveICCProfile(png_structp png, png_infop info) {
+        inline cmsHPROFILE retrieveICCProfile(png_structp png, png_infop info, ColorModel colorModel) {
             png_charp    icc_name;
             int          icc_compression;
             png_bytep    icc_data;
@@ -54,7 +54,7 @@ namespace ImageIO {
                     &white_point, &primaries, curves
                 );
             } else {
-                return cmsCreate_sRGBProfile();
+                return createProfileFromColorModel(colorModel);
             }
         }
 
@@ -138,7 +138,10 @@ namespace ImageIO {
         bit_depth         = png_get_bit_depth(png, info);
         color_type        = png_get_color_type(png, info);
 
-        auto profile = retrieveICCProfile(png, info);
+        SampleType sampleType = bit_depth == 8 ? SampleType::U8 : SampleType::U16;
+        ColorModel colorModel = resolveColorModel(color_type);
+
+        auto profile = retrieveICCProfile(png, info, colorModel);
         
         size_t data_size = row_stride * height;
         uint8_t* data = new uint8_t[data_size];
@@ -154,8 +157,7 @@ namespace ImageIO {
         png_destroy_read_struct(&png, &info, nullptr);
         fclose(file);
 
-        SampleType sampleType = bit_depth == 8 ? SampleType::U8 : SampleType::U16;
-        ColorModel colorModel = resolveColorModel(color_type);
+ 
 
         return Bitmap(width, height, data, sampleType, colorModel, profile);
     }

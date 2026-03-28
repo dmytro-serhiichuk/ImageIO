@@ -33,17 +33,10 @@ namespace ImageIO {
                 throw std::runtime_error("Failed to get icc profile");
             }
 
-
             if (iccBuffer != nullptr && iccSize != 0) {
                 return cmsOpenProfileFromMem(iccBuffer, iccSize);
             } else {
-                if (colorModel == ColorModel::RGB) {
-                    return cmsCreate_sRGBProfile();
-                } else if (colorModel == ColorModel::GRAY) {
-                    return createDefaultGrayProfile();
-                } else {
-                    return createCMYKProfile();
-                }
+                return createProfileFromColorModel(colorModel);
             }
         }
 
@@ -145,8 +138,8 @@ namespace ImageIO {
         TJCS colorSpace   = (TJCS)tj3Get(decompressor, TJPARAM_COLORSPACE);
 
         PixelFormatInfo pfi = resolvePixelFormat(colorSpace);
-
         auto samplesPerPixel = getSamplesPerPixel(pfi.colorModel);
+        
         size_t bufferSize = width * height * samplesPerPixel;
         uint8_t* buffer = new uint8_t[bufferSize];
         
