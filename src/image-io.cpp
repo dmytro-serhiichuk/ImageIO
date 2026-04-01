@@ -76,6 +76,7 @@ namespace ImageIO {
         if (sampleType != bitmap.sampleType || colorModel != bitmap.colorModel || iccProfile != nullptr) {
             return bitmap.convertTo(sampleType, colorModel, iccProfile);
         }
+        return bitmap;
     }
 
     void save(const char *filename, Bitmap &bitmap, Properties props) {

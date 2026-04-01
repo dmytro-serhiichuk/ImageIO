@@ -9,11 +9,4 @@ find_dependency(lcms2           CONFIG  REQUIRED)
 
 include("${CMAKE_CURRENT_LIST_DIR}/ImageIOTargets.cmake")
 
-if(NOT TARGET ImageIO::ImageIO)
-  add_library(ImageIO::ImageIO ALIAS ImageIO::ImageIO_shared)
-endif()
-if(NOT TARGET ImageIO::ImageIO_STATIC)
-  add_library(ImageIO::ImageIO_STATIC ALIAS ImageIO::ImageIO_static)
-endif()
-
 check_required_components(ImageIO)
