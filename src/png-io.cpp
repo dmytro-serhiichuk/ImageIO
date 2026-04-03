@@ -129,6 +129,12 @@ namespace ImageIO {
         if (color_type == PNG_COLOR_TYPE_PALETTE) {
             png_set_palette_to_rgb(png);
         }
+        if (bit_depth == 16) {
+            png_set_swap(png);
+        }
+        if (bit_depth < 8 && color_type == PNG_COLOR_TYPE_GRAY) {
+            png_set_expand_gray_1_2_4_to_8(png);
+        }
 
         png_read_update_info(png, info);
 
@@ -156,8 +162,6 @@ namespace ImageIO {
         delete [] rows;
         png_destroy_read_struct(&png, &info, nullptr);
         fclose(file);
-
- 
 
         return Bitmap(width, height, data, sampleType, colorModel, profile);
     }
@@ -223,8 +227,8 @@ namespace ImageIO {
 
         png_write_image(png, rows.data());
         png_write_end(png, nullptr);
+        png_destroy_write_struct(&png, &info);
 
         fclose(file);
-        png_destroy_write_struct(&png, &info);
     }
 }
