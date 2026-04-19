@@ -13,6 +13,8 @@ namespace ImageIO {
     cmsHPROFILE createDefaultGrayProfile();
     // Creates an icc profile for CMYK color model based on U.S. Web Coated (SWOP) v2 standard
     cmsHPROFILE createCMYKProfile();
+    // Creates an icc profile for RGB color model based on IEC 61966 standard
+    cmsHPROFILE create_sRGBProfile();
     // Creates an icc profile for RGB color model based on Adobe RGB (1998) standard
     cmsHPROFILE createAdobeRGBProfile();
     // Creates an icc profile for RGB color model based on ISO 22028-2:2013 standard
@@ -24,6 +26,8 @@ namespace ImageIO {
     cmsUInt32Number buildLcmsType(ColorModel colorModel, SampleType sampleType);
     // Creates a default profile for passed color model
     cmsHPROFILE createProfileFromColorModel(ColorModel colorModel);
+
+    bool profileEqual(cmsHPROFILE p1, cmsHPROFILE p2);
 }
 
 #endif

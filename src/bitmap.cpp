@@ -97,19 +97,17 @@ namespace ImageIO {
 
     Bitmap Bitmap::convertByLcms2(SampleType newSampleType, ColorModel newColorModel, const cmsHPROFILE newProfile) const {
         uint8_t* newBuffer = nullptr;
-        cmsHPROFILE outProfile = nullptr;
+        cmsHPROFILE outProfile = newProfile ? newProfile : createProfileFromColorModel(newColorModel);
+
+        if (!outProfile) {
+            throw std::runtime_error("Bitmap: Failed to create output profile");
+        }
 
         uint32_t inBytesPerSample  = getBytesPerSample(sampleType);
         uint32_t outBytesPerSample = getBytesPerSample(newSampleType);
 
         auto inType  = buildLcmsType(colorModel, sampleType);
         auto outType = buildLcmsType(newColorModel, newSampleType);
-        
-        outProfile = newProfile ? newProfile : createProfileFromColorModel(newColorModel);
-
-        if (!outProfile) {
-            throw std::runtime_error("Bitmap: Failed to create output profile");
-        }
 
         cmsHTRANSFORM t = cmsCreateTransform(
             profile, inType,
@@ -146,8 +144,11 @@ namespace ImageIO {
     Bitmap Bitmap::convertTo(const SampleType newSampleType, const ColorModel newColorModel, const cmsHPROFILE newProfile, Properties props) const {
         if (sampleType == newSampleType && colorModel == newColorModel && newProfile == nullptr) return copy();
 
-        if (!isColorModelsShareProfiles(colorModel, newColorModel) || newProfile != nullptr) {
+        auto np = newProfile ? newProfile : createProfileFromColorModel(newColorModel);
+        if (!isColorModelsShareProfiles(colorModel, newColorModel) || !profileEqual(np, profile)) {
             return convertByLcms2(newSampleType, newColorModel, newProfile);
+        } else if (np != newProfile) {
+            cmsCloseProfile(np);
         }
 
         void* newBuffer = nullptr;
