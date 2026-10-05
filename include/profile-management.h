@@ -19,8 +19,6 @@ namespace ImageIO {
     cmsHPROFILE createAdobeRGBProfile();
     // Creates an icc profile for RGB color model based on ISO 22028-2:2013 standard
     cmsHPROFILE createProPhotoProfile();
-    // Creates an icc profile for RGB color model based on Adobe Wide-Gamut RGB standard
-    cmsHPROFILE createWideGamutProfile();
 
     // Builds a lcms type for profiles convertations based on color model and sample type
     cmsUInt32Number buildLcmsType(ColorModel colorModel, SampleType sampleType);
