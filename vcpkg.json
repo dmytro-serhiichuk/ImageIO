@@ -1,0 +1,6 @@
+{
+  "name": "imageio",
+  "version": "0.1.0",
+  "builtin-baseline": "9b4c0159f4a5eaa16375a6b7d957c5c19e2501d3",
+  "dependencies": ["libjpeg-turbo", "libpng", "tiff", "lcms", "libraw"]
+}

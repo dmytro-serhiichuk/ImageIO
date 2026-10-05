@@ -27,9 +27,9 @@ namespace ImageIO {
 
             if (has_chrm && has_gama) {
                 cmsCIExyYTRIPLE primaries = {
-                    .Red   = { rx, ry, 1.0 },
-                    .Green = { gx, gy, 1.0 },
-                    .Blue  = { bx, by, 1.0 }
+                    { rx, ry, 1.0 },
+                    { gx, gy, 1.0 },
+                    { bx, by, 1.0 }
                 };
                 cmsCIExyY white_point = { wx, wy, 1.0 };
 
@@ -44,10 +44,9 @@ namespace ImageIO {
                     { rx, ry, 1.0 }, { gx, gy, 1.0 }, { bx, by, 1.0 }
                 };
                 cmsCIExyY white_point = { wx, wy, 1.0 };
-
-                cmsToneCurve *srgb_trc = cmsBuildParametricToneCurve(
-                    NULL, 4, (double[]){ 2.4, 1.0/1.055, 0.055/1.055, 1.0/12.92, 0.04045 }
-                );
+                
+                double params[5] = { 2.4, 1.0/1.055, 0.055/1.055, 1.0/12.92, 0.04045 };
+                cmsToneCurve *srgb_trc = cmsBuildParametricToneCurve(NULL, 4, params);
                 cmsToneCurve *curves[3] = { srgb_trc, srgb_trc, srgb_trc };
 
                 return cmsCreateRGBProfile(

@@ -298,7 +298,7 @@ namespace ImageIO {
                 }            
             }
 
-            src.sampleFormat == SampleFormat::UInt;
+            src.sampleFormat = SampleFormat::UInt;
         }
     
         inline cmsHPROFILE retrieveICCProfile(TIFF* tiff, TIFFData &src) {
