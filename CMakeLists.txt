@@ -62,6 +62,12 @@ foreach(target ${target_static} ${target_shared})
     )
 endforeach()
 
+option(IMAGEIO_BUILD_TESTS "Build ImageIO tests" ${PROJECT_IS_TOP_LEVEL})
+if(IMAGEIO_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
+
 # INTERFACE: ImageIO::ImageIO → shared
 add_library(${target_default} INTERFACE)
 target_link_libraries(${target_default} INTERFACE ${target_shared})
