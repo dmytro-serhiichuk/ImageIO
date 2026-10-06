@@ -1,7 +1,7 @@
 #include "tiff-io.h"
 #include <tiffio.h>
 #include <lcms2.h>
-#include "profile-management.h"
+#include "ImageIO/color-profile.h"
 
 namespace ImageIO {
     namespace {
@@ -301,22 +301,22 @@ namespace ImageIO {
             src.sampleFormat = SampleFormat::UInt;
         }
     
-        inline cmsHPROFILE retrieveICCProfile(TIFF* tiff, TIFFData &src) {
+        inline ColorProfile retrieveICCProfile(TIFF* tiff, TIFFData &src) {
             uint32_t iccSize = 0;
             void*    icc = nullptr;
             if (TIFFGetField(tiff, TIFFTAG_ICCPROFILE, &iccSize, &icc) && iccSize > 0 && icc) {
-                return cmsOpenProfileFromMem(icc, iccSize);
+                return ColorProfile::FromMemory(icc, iccSize);
             } else {
                 switch (src.colorSpace) {
                     case ColorSpace::CMYK:
                     case ColorSpace::CMYKA:
-                        return createCMYKProfile();
+                        return ColorProfile::CMYK();
                     case ColorSpace::RGB:
                     case ColorSpace::RGBA:
-                        return cmsCreate_sRGBProfile();
+                        return ColorProfile::sRGB();
                     case ColorSpace::Gray:
                     case ColorSpace::GrayA: 
-                        return createDefaultGrayProfile();
+                        return ColorProfile::Gray();
                     default:
                         throw std::runtime_error("TIFF: Color Space is not defined or not supported");
                 }
@@ -540,7 +540,7 @@ namespace ImageIO {
             );
         }
 
-        auto icc = bitmap.getICCProfile();
+        auto icc = bitmap.profile.toICC();
         TIFFSetField(
             tiff, TIFFTAG_ICCPROFILE, 
             static_cast<uint32_t>(icc.size()), icc.data()

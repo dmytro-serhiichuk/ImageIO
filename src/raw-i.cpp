@@ -1,10 +1,10 @@
 #include "raw-i.h"
 #include <libraw/libraw.h>
-#include <lcms2.h>
+#include "ImageIO/color-profile-lcms.h"
 
 namespace ImageIO {
     namespace {
-        cmsHPROFILE retrieveICCProfile(const LibRaw &processor) {
+        ColorProfile retrieveICCProfile(const LibRaw &processor) {
             cmsHPROFILE hProfile = cmsCreateProfilePlaceholder(nullptr);
             cmsSetDeviceClass(hProfile, cmsSigColorSpaceClass);
             cmsSetColorSpace(hProfile, cmsSigXYZData);
@@ -44,7 +44,9 @@ namespace ImageIO {
                 cmsPipelineFree(lut);
             }
             
-            return hProfile;
+            auto p = colorProfileFromLcms(hProfile);
+            cmsCloseProfile(hProfile);
+            return p;
         }
     }
 

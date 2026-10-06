@@ -28,7 +28,7 @@ namespace ImageIO {
     Bitmap open(const char* filename, 
         SampleType sampleType = SampleType::U8, 
         ColorModel colorModel = ColorModel::RGB,
-        cmsHPROFILE iccProfile = nullptr,
+        ColorProfile profile = {},
         Properties props = {}
     );
 

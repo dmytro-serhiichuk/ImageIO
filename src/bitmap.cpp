@@ -1,5 +1,5 @@
-#include "bitmap.h"
-#include "profile-management.h"
+#include "ImageIO/bitmap.h"
+#include "lcms-utils.h"
 
 namespace ImageIO {
     Bitmap::Bitmap() {
@@ -12,7 +12,6 @@ namespace ImageIO {
         colorModel = ColorModel::RGB;
 
         buffer = nullptr;
-        profile = nullptr;
     }
 
     Bitmap::Bitmap(const Bitmap &other) {
@@ -26,7 +25,7 @@ namespace ImageIO {
 
         buffer = new uint8_t[bufferSize];
         memcpy(buffer, other.buffer, bufferSize);
-        profile = cloneProfile(other.profile);
+        profile = other.profile;
     }
     Bitmap::Bitmap(Bitmap &&other) noexcept {
         width = other.width;
@@ -39,27 +38,20 @@ namespace ImageIO {
 
         buffer = other.buffer;
         other.buffer = nullptr;
-        profile = other.profile;
-        other.profile = nullptr;
+        profile = std::move(other.profile);
     }
     Bitmap::~Bitmap() {
         delete [] buffer;
         buffer = nullptr;
-        cmsCloseProfile(profile);
-        profile = nullptr;
     }
 
     Bitmap Bitmap::copy() const {
-        uint8_t* cb = new uint8_t[bufferSize];
-        memcpy(cb, buffer, bufferSize);
-        return Bitmap(width, height, cb, sampleType, colorModel, cloneProfile(profile));
+        return Bitmap(*this);
     }
   
     Bitmap &Bitmap::operator=(const Bitmap &other) {
         if (this != &other) {
-            delete [] buffer;
-            cmsCloseProfile(profile);
-
+            
             width = other.width;
             height = other.height;
             bufferSize = other.bufferSize;
@@ -67,17 +59,19 @@ namespace ImageIO {
             stride = other.stride;
             sampleType = other.sampleType;
             colorModel = other.colorModel;
+            
+            auto newBuffer = new uint8_t[bufferSize];
+            memcpy(newBuffer, other.buffer, bufferSize);
+            delete [] buffer;
+            buffer = newBuffer;
 
-            buffer = new uint8_t[bufferSize];
-            memcpy(buffer, other.buffer, bufferSize);
-            profile = cloneProfile(other.profile);
+            profile = other.profile;
         }
         return *this;
     }
-    Bitmap &Bitmap::operator=(Bitmap &&other) {
+    Bitmap &Bitmap::operator=(Bitmap &&other) noexcept {
         if (this != &other) {
             delete [] buffer;
-            cmsCloseProfile(profile);
 
             width = other.width;
             height = other.height;
@@ -89,20 +83,19 @@ namespace ImageIO {
 
             buffer = other.buffer;
             other.buffer = nullptr;
-            profile = other.profile;
-            other.profile = nullptr;
+            profile = std::move(other.profile);
         }
         return *this;
     }
 
-    Bitmap Bitmap::convertByLcms2(SampleType newSampleType, ColorModel newColorModel, const cmsHPROFILE newProfile) const {
-        uint8_t* newBuffer = nullptr;
-        cmsHPROFILE outProfile = newProfile ? newProfile : createProfileFromColorModel(newColorModel);
-
-        if (!outProfile) {
-            throw std::runtime_error("Bitmap: Failed to create output profile");
+    Bitmap Bitmap::convertByLcms2(SampleType newSampleType, ColorModel newColorModel, const ColorProfile& newProfile) const {
+        if (profile.empty()) {
+            throw std::runtime_error("Bitmap: source bitmap has no ICC profile");
         }
 
+        const ColorProfile outProfile = newProfile.empty() ? ColorProfile::Default(newColorModel) : newProfile;
+        
+        uint8_t* newBuffer = nullptr;
         uint32_t inBytesPerSample  = getBytesPerSample(sampleType);
         uint32_t outBytesPerSample = getBytesPerSample(newSampleType);
 
@@ -110,13 +103,12 @@ namespace ImageIO {
         auto outType = buildLcmsType(newColorModel, newSampleType);
 
         cmsHTRANSFORM t = cmsCreateTransform(
-            profile, inType,
-            outProfile, outType,
+            getNativeLcmsProfile(profile), inType,
+            getNativeLcmsProfile(outProfile), outType,
             INTENT_RELATIVE_COLORIMETRIC, 0
         );
 
         if (!t) {
-            cmsCloseProfile(outProfile);
             throw std::runtime_error("Bitmap: Invalid output icc profile");
         }
 
@@ -141,14 +133,14 @@ namespace ImageIO {
         return Bitmap(width, height, newBuffer, newSampleType, newColorModel, outProfile);
     }
 
-    Bitmap Bitmap::convertTo(const SampleType newSampleType, const ColorModel newColorModel, const cmsHPROFILE newProfile, Properties props) const {
-        if (sampleType == newSampleType && colorModel == newColorModel && newProfile == nullptr) return copy();
+    Bitmap Bitmap::convertTo(const SampleType newSampleType, const ColorModel newColorModel, const ColorProfile& newProfile, Properties props) const {
+        if (sampleType == newSampleType && colorModel == newColorModel && newProfile.empty()) return copy();
+        
+        const ColorProfile target = newProfile.empty() ? ColorProfile::Default(newColorModel) : newProfile;
 
-        auto np = newProfile ? newProfile : createProfileFromColorModel(newColorModel);
-        if (!isColorModelsShareProfiles(colorModel, newColorModel) || !profileEqual(np, profile)) {
-            return convertByLcms2(newSampleType, newColorModel, newProfile);
-        } else if (np != newProfile) {
-            cmsCloseProfile(np);
+        if (!isColorModelsShareProfiles(colorModel, newColorModel) || 
+            !profileEqual(getNativeLcmsProfile(target), getNativeLcmsProfile(profile))) {
+            return convertByLcms2(newSampleType, newColorModel, target);
         }
 
         void* newBuffer = nullptr;
@@ -178,15 +170,6 @@ namespace ImageIO {
             if (newSampleType == SampleType::F32) newBuffer = _convertTo<float, float>(newSampleType, newColorModel, props);
         }
 
-        return Bitmap(width, height, newBuffer, newSampleType, newColorModel, cloneProfile(profile));
-    }
-
-    std::vector<uint8_t> Bitmap::getICCProfile() const {
-        cmsUInt32Number size = 0;
-        cmsSaveProfileToMem(profile, NULL, &size);
-
-        std::vector<uint8_t> icc(size);
-        cmsSaveProfileToMem(profile, icc.data(), &size);
-        return icc;
+        return Bitmap(width, height, newBuffer, newSampleType, newColorModel, profile);
     }
 }

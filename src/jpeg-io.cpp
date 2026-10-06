@@ -2,7 +2,7 @@
 #include <turbojpeg.h>
 #include <type_traits>
 #include <stdexcept>
-#include "profile-management.h"
+#include "ImageIO/color-profile.h"
 
 namespace ImageIO {
     namespace {
@@ -22,7 +22,7 @@ namespace ImageIO {
             }
         }
 
-        cmsHPROFILE retrieveICCProfile(tjhandle decompressor, ColorModel colorModel) {
+        ColorProfile retrieveICCProfile(tjhandle decompressor, ColorModel colorModel) {
             size_t iccSize = 0;
             uint8_t* iccBuffer = nullptr;
             
@@ -34,9 +34,9 @@ namespace ImageIO {
             }
 
             if (iccBuffer != nullptr && iccSize != 0) {
-                return cmsOpenProfileFromMem(iccBuffer, iccSize);
+                return ColorProfile::FromMemory(iccBuffer, iccSize);
             } else {
-                return createProfileFromColorModel(colorModel);
+                return ColorProfile::Default(colorModel);
             }
         }
 
@@ -148,7 +148,7 @@ namespace ImageIO {
             throw std::runtime_error("Failed to decompress jpeg");
         }
 
-        cmsHPROFILE profile = retrieveICCProfile(decompressor, pfi.colorModel);
+        ColorProfile profile = retrieveICCProfile(decompressor, pfi.colorModel);
 
         tj3Destroy(decompressor);
 
@@ -180,7 +180,7 @@ namespace ImageIO {
         tj3Set(jpegCompressor, TJPARAM_SUBSAMP , subsamp);
         tj3Set(jpegCompressor, TJPARAM_COLORSPACE, colorSpace);
 
-        auto profile = convertedBitmap.getICCProfile();
+        auto profile = convertedBitmap.profile.toICC();
         tj3SetICCProfile(jpegCompressor, profile.data(), profile.size());
 
         if (tj3Compress8(jpegCompressor, convertedBitmap.buffer, convertedBitmap.width, 0, convertedBitmap.height, pixelFormat, &jpegBuf, &jpegSize) < 0) {

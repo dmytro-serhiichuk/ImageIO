@@ -1,20 +1,20 @@
 #include "png-io.h"
 #include <libpng16/png.h>
-#include "profile-management.h"
+#include "ImageIO/color-profile-lcms.h"
 
 namespace ImageIO {
     namespace {
-        inline cmsHPROFILE retrieveICCProfile(png_structp png, png_infop info, ColorModel colorModel) {
+        inline ColorProfile retrieveICCProfile(png_structp png, png_infop info, ColorModel colorModel) {
             png_charp    icc_name;
             int          icc_compression;
             png_bytep    icc_data;
             png_uint_32  icc_length;
 
             if (png_get_iCCP(png, info, &icc_name, &icc_compression, &icc_data, &icc_length) == PNG_INFO_iCCP) {
-                return cmsOpenProfileFromMem(icc_data, icc_length);
+                return ColorProfile::FromMemory(icc_data, icc_length);
             }
             if (png_get_sRGB(png, info, nullptr) == PNG_INFO_sRGB) {
-                return cmsCreate_sRGBProfile();
+                return ColorProfile::sRGB();
             }
             
             double wx, wy, rx, ry, gx, gy, bx, by;
@@ -35,10 +35,13 @@ namespace ImageIO {
 
                 cmsToneCurve *curve = cmsBuildGamma(NULL, 1.0 / gamma_value);
                 cmsToneCurve *curves[3] = { curve, curve, curve };
-
-                return cmsCreateRGBProfile(
+                
+                auto p = cmsCreateRGBProfile(
                     &white_point, &primaries, curves
                 );
+                auto res = colorProfileFromLcms(p);
+                cmsCloseProfile(p);
+                return res;
             } else if (has_chrm && !has_gama) { // assume sRGB gamma
                 cmsCIExyYTRIPLE primaries = {
                     { rx, ry, 1.0 }, { gx, gy, 1.0 }, { bx, by, 1.0 }
@@ -49,11 +52,14 @@ namespace ImageIO {
                 cmsToneCurve *srgb_trc = cmsBuildParametricToneCurve(NULL, 4, params);
                 cmsToneCurve *curves[3] = { srgb_trc, srgb_trc, srgb_trc };
 
-                return cmsCreateRGBProfile(
+                auto p = cmsCreateRGBProfile(
                     &white_point, &primaries, curves
                 );
+                auto res = colorProfileFromLcms(p);
+                cmsCloseProfile(p);
+                return res;
             } else {
-                return createProfileFromColorModel(colorModel);
+                return ColorProfile::Default(colorModel);
             }
         }
 
@@ -203,7 +209,7 @@ namespace ImageIO {
             PNG_FILTER_TYPE_DEFAULT
         );
 
-        auto icc = src.getICCProfile();
+        auto icc = src.profile.toICC();
         png_set_iCCP(
             png, info, "ICC Profile", PNG_COMPRESSION_TYPE_BASE, 
             reinterpret_cast<png_const_bytep>(icc.data()),

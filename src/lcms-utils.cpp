@@ -1,44 +1,6 @@
-#include "profile-management.h"
-#include "profiles-sources/adobe_rgb_profile_data.h"
-#include "profiles-sources/cmyk_profile_data.h"
-#include "profiles-sources/pro_photo_profile_data.h"
-#include <cstdint>
-#include <stdexcept>
+#include "lcms-utils.h"
 
 namespace ImageIO {
-    cmsHPROFILE ImageIO::cloneProfile(cmsHPROFILE srcProfile) {
-        cmsUInt32Number size = 0;
-        cmsSaveProfileToMem(srcProfile, nullptr, &size);
-        auto buffer = new uint8_t[size];
-        cmsSaveProfileToMem(srcProfile, buffer, &size);
-        cmsHPROFILE dst = cmsOpenProfileFromMem(buffer, size);
-        delete [] buffer;
-        return dst;
-    }
-    void writeProfileToMem(cmsHPROFILE profile, uint8_t *&icc, uint32_t &iccSize) {
-        cmsSaveProfileToMem(profile, NULL, &iccSize);
-        icc = new uint8_t[iccSize]();
-        cmsSaveProfileToMem(profile, icc, &iccSize);
-    }
-    cmsHPROFILE createDefaultGrayProfile() {
-        auto curve = cmsBuildGamma(nullptr, 2.2);
-        auto profile = cmsCreateGrayProfile(cmsD50_xyY(), curve);
-        cmsFreeToneCurve(curve);
-        return profile;
-    }
-    cmsHPROFILE createCMYKProfile() {
-        return cmsOpenProfileFromMem(USWebCoatedSWOP_icc, USWebCoatedSWOP_icc_len);
-    }
-    cmsHPROFILE create_sRGBProfile() {
-        return cmsCreate_sRGBProfile();
-    }
-    cmsHPROFILE createAdobeRGBProfile()
-    {
-        return cmsOpenProfileFromMem(AdobeRGB1998_icc, AdobeRGB1998_icc_len);
-    }
-    cmsHPROFILE createProPhotoProfile() {
-        return cmsOpenProfileFromMem(ISO22028_2_ROMM_RGB_icc, ISO22028_2_ROMM_RGB_icc_len);
-    }
     cmsUInt32Number buildLcmsType(ColorModel colorModel, SampleType sampleType)
     {
         cmsUInt32Number colorSpaceFlag = 0;
@@ -79,23 +41,6 @@ namespace ImageIO {
                 BYTES_SH((cmsUInt32Number)bps) |
                 FLOAT_SH((cmsUInt32Number)isFloat) |
                 EXTRA_SH(extraChannels));
-    }
-    cmsHPROFILE createProfileFromColorModel(ColorModel colorModel) {
-        switch (colorModel) {
-            case ColorModel::RGB:
-            case ColorModel::RGBA:
-                return cmsCreate_sRGBProfile();
-            case ColorModel::GRAY:
-            case ColorModel::GRAYA:
-                return createDefaultGrayProfile();
-            case ColorModel::CMYK:
-            case ColorModel::CMYKA:
-                return createCMYKProfile();
-            case ColorModel::XYZ:
-                return cmsCreateXYZProfile();
-            default:
-                throw std::runtime_error("ICC Profile creation failed - invalid color model");
-        }
     }
 
     namespace {

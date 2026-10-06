@@ -5,10 +5,9 @@
 #include <cstring>
 #include <stdexcept>
 #include "properties.h"
-#include <lcms2.h>
 #include <vector>
-#include "color-model.h"
 #include "sample-type.h"
+#include "color-profile.h"
 
 namespace ImageIO {
     class Bitmap {
@@ -21,38 +20,38 @@ namespace ImageIO {
         uint32_t stride;
         SampleType sampleType;
         ColorModel colorModel;
-        cmsHPROFILE profile;
+        ColorProfile profile;
 
         Bitmap();
-        // New instance of the Bitmap takes ownership over passed buffer and icc profile
-        Bitmap(uint32_t w, uint32_t h, void* b, SampleType st, ColorModel cm, cmsHPROFILE p) :
-            width(w), height(h), buffer((uint8_t*)b), sampleType(st), 
-            colorModel(cm), profile(p),
-            totalSamples(w * h * getSamplesPerPixel(cm)),
+        // New instance of the Bitmap takes ownership over passed buffer
+        Bitmap(uint32_t w, uint32_t h, void* b, SampleType st, ColorModel cm, ColorProfile p) :
+            width(w), height(h), buffer((uint8_t*)b), 
             bufferSize(w * h * getSamplesPerPixel(cm) * getBytesPerSample(st)),
-            stride(w * getBytesPerSample(st) * getSamplesPerPixel(cm)) {}
+            totalSamples(w * h * getSamplesPerPixel(cm)),
+            stride(w * getBytesPerSample(st) * getSamplesPerPixel(cm)), 
+            sampleType(st), colorModel(cm), profile(p) {}
+            
         Bitmap(const Bitmap& other);
         Bitmap(Bitmap&& other) noexcept;
         ~Bitmap();
 
         Bitmap copy() const;
 
-        Bitmap& operator=(Bitmap&& nb);
+        Bitmap& operator=(Bitmap&& nb) noexcept;
         Bitmap& operator=(const Bitmap& nb);
 
         /// @brief Converts bitmap's sample type
         /// @return New instance of a bitmap with converted sample type
         /// @note Returns a copy of the bitmap if newSampleType is equal to bitmap's sample type
         inline Bitmap convertSampleType(const SampleType newSampleType, Properties props = {}) const {
-            return convertTo(newSampleType, colorModel, nullptr, props);
+            return convertTo(newSampleType, colorModel, {}, props);
         }
 
         /// @brief Converts bitmap's color model
         /// @return New instance of a bitmap with converted color model and new color profile
         /// @note Returns a copy of the bitmap if newColorModel is equal to bitmap's color model
         /// @note Always recreates the bitmap if newProfile is explicitly defined
-        /// @note The resulted bitmap takes ownership over the passed icc profile
-        inline Bitmap convertColorModel(const ColorModel newColorModel, const cmsHPROFILE newProfile = nullptr, Properties props = {}) const {
+        inline Bitmap convertColorModel(const ColorModel newColorModel, const ColorProfile& newProfile = {}, Properties props = {}) const {
             return convertTo(sampleType, newColorModel, newProfile, props);
         }
 
@@ -60,14 +59,9 @@ namespace ImageIO {
         /// @return New instance of bitmap with converted values
         /// @note Returns a copy of the bitmap if newSampleType and newColorModel are equal to current bitmap's values
         /// @note Always recreates the bitmap if newProfile is explicitly defined
-        /// @note The resulted bitmap takes ownership over the passed icc profile
-        Bitmap convertTo(const SampleType newSampleType, const ColorModel newColorModel, const cmsHPROFILE newProfile = nullptr, Properties props = {}) const;
-
-        /// @brief Returns ICC Profile of the bitmap
-        /// @return ICC Profile stored in memory
-        std::vector<uint8_t> getICCProfile() const;
+        Bitmap convertTo(const SampleType newSampleType, const ColorModel newColorModel, const ColorProfile& newProfile = {}, Properties props = {}) const;
     private:
-        Bitmap convertByLcms2(SampleType newSampleType, ColorModel newColorSpace, const cmsHPROFILE newProfile = nullptr) const;
+        Bitmap convertByLcms2(SampleType newSampleType, ColorModel newColorSpace, const ColorProfile& newProfile) const;
 
         template <typename I, typename O>
         O* _convertTo(SampleType newSampleType, ColorModel newColorModel, Properties props) const {

@@ -1,4 +1,4 @@
-#include "sample-type.h"
+#include "ImageIO/sample-type.h"
 #include <stdexcept>
 
 namespace ImageIO {

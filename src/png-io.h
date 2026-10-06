@@ -1,7 +1,7 @@
 #ifndef IMAGEIO_PNGIO_H
 #define IMAGEIO_PNGIO_H
 
-#include "bitmap.h"
+#include "ImageIO/bitmap.h"
 
 namespace ImageIO {
     Bitmap loadPNG(const char* filename);

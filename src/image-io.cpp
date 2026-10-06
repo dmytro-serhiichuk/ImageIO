@@ -2,7 +2,7 @@
 #include <string>
 #include <algorithm>
 #include <fstream>
-#include "image-io.h"
+#include "ImageIO/image-io.h"
 #include "jpeg-io.h"
 #include "png-io.h"
 #include "raw-i.h"
@@ -53,7 +53,7 @@ namespace ImageIO {
         return Format::UNDEFINED;
     }
 
-    Bitmap open(const char *filename, SampleType sampleType, ColorModel colorModel, cmsHPROFILE iccProfile, Properties props) {
+    Bitmap open(const char *filename, SampleType sampleType, ColorModel colorModel, ColorProfile profile, Properties props) {
         Format format = getFormat(filename);
 
         Bitmap bitmap {};
@@ -73,8 +73,8 @@ namespace ImageIO {
             throw std::runtime_error("File format is not supported");
         }
 
-        if (sampleType != bitmap.sampleType || colorModel != bitmap.colorModel || iccProfile != nullptr) {
-            return bitmap.convertTo(sampleType, colorModel, iccProfile);
+        if (sampleType != bitmap.sampleType || colorModel != bitmap.colorModel || !profile.empty()) {
+            return bitmap.convertTo(sampleType, colorModel, profile);
         }
         return bitmap;
     }

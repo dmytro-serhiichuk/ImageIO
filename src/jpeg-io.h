@@ -1,7 +1,7 @@
 #ifndef IMAGEIO_JPEGIO_H
 #define IMAGEIO_JPEGIO_H
 
-#include "bitmap.h"
+#include "ImageIO/bitmap.h"
 
 namespace ImageIO {
     Bitmap loadJPEG(const char* filename);

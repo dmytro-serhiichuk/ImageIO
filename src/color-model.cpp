@@ -1,4 +1,4 @@
-#include "color-model.h"
+#include "ImageIO/color-model.h"
 #include <stdexcept>
 
 namespace ImageIO {

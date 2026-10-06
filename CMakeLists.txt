@@ -75,9 +75,7 @@ install(TARGETS ${target_default} ${target_static} ${target_shared}
   INCLUDES DESTINATION include
 )
 
-install(DIRECTORY include/
-  DESTINATION include/${PROJECT_NAME}
-)
+install(DIRECTORY include/ DESTINATION include/)
 
 install(EXPORT      ${PROJECT_NAME}Targets
         FILE        ${PROJECT_NAME}Targets.cmake

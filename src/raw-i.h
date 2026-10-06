@@ -1,7 +1,7 @@
 #ifndef IMAGEIO_RAW_H
 #define IMAGEIO_RAW_H
 
-#include "bitmap.h"
+#include "ImageIO/bitmap.h"
 
 namespace ImageIO {
     bool isRAW(const char* filename);
