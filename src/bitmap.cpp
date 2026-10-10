@@ -15,6 +15,11 @@ namespace ImageIO {
     }
 
     Bitmap::Bitmap(const Bitmap &other) {
+        auto newBuffer = new uint8_t[bufferSize];
+        memcpy(newBuffer, other.buffer, bufferSize);
+        delete [] buffer;
+        buffer = newBuffer;
+
         width = other.width;
         height = other.height;
         bufferSize = other.bufferSize;
@@ -22,9 +27,6 @@ namespace ImageIO {
         stride = other.stride;
         sampleType = other.sampleType;
         colorModel = other.colorModel;
-
-        buffer = new uint8_t[bufferSize];
-        memcpy(buffer, other.buffer, bufferSize);
         profile = other.profile;
     }
     Bitmap::Bitmap(Bitmap &&other) noexcept {
@@ -38,6 +40,7 @@ namespace ImageIO {
 
         buffer = other.buffer;
         other.buffer = nullptr;
+        other.bufferSize = 0;
         profile = std::move(other.profile);
     }
     Bitmap::~Bitmap() {
@@ -51,6 +54,10 @@ namespace ImageIO {
   
     Bitmap &Bitmap::operator=(const Bitmap &other) {
         if (this != &other) {
+            auto newBuffer = new uint8_t[bufferSize];
+            memcpy(newBuffer, other.buffer, bufferSize);
+            delete [] buffer;
+            buffer = newBuffer;
             
             width = other.width;
             height = other.height;
@@ -59,12 +66,6 @@ namespace ImageIO {
             stride = other.stride;
             sampleType = other.sampleType;
             colorModel = other.colorModel;
-            
-            auto newBuffer = new uint8_t[bufferSize];
-            memcpy(newBuffer, other.buffer, bufferSize);
-            delete [] buffer;
-            buffer = newBuffer;
-
             profile = other.profile;
         }
         return *this;
@@ -72,7 +73,8 @@ namespace ImageIO {
     Bitmap &Bitmap::operator=(Bitmap &&other) noexcept {
         if (this != &other) {
             delete [] buffer;
-
+            buffer = other.buffer;
+            
             width = other.width;
             height = other.height;
             bufferSize = other.bufferSize;
@@ -80,9 +82,9 @@ namespace ImageIO {
             stride = other.stride;
             sampleType = other.sampleType;
             colorModel = other.colorModel;
-
-            buffer = other.buffer;
             other.buffer = nullptr;
+            other.bufferSize = 0;
+            
             profile = std::move(other.profile);
         }
         return *this;

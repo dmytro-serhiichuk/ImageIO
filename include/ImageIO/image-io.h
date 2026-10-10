@@ -21,10 +21,8 @@ namespace ImageIO {
     /// @brief Opens image from file and recognizes the image type 
     /// @param sampleType Sample type and depth of output bitmap 
     /// @param colorModel Color model of the output bitmap
-    /// @param iccProfile ICC Profile of the image
+    /// @param profile ICC Profile of the image
     /// @return New instance of Bitmap
-    /// @note The resulted instance takes the ownership of the iccProfile
-    /// @note If iccProfile is nullptr the default profile is applied
     Bitmap open(const char* filename, 
         SampleType sampleType = SampleType::U8, 
         ColorModel colorModel = ColorModel::RGB,

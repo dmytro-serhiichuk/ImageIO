@@ -65,7 +65,7 @@ namespace ImageIO {
 
         template <typename I, typename O>
         O* _convertTo(SampleType newSampleType, ColorModel newColorModel, Properties props) const {
-            size_t newBufferLength = width * height * getSamplesPerPixel(newColorModel); 
+            size_t newBufferLength = (size_t)width * height * getSamplesPerPixel(newColorModel); 
             O* dst = new O[newBufferLength];
             I* src = (I*)buffer;
 
@@ -134,22 +134,23 @@ namespace ImageIO {
             if (std::is_same<I, uint8_t>::value) {
                 if (std::is_same<O, uint16_t>::value)   return (uint16_t)input * 257;
                 if (std::is_same<O, uint32_t>::value)   return (uint32_t)input * 16843009;
-                if (std::is_same<O, float>::value)      return (float)input / 255;
+                if (std::is_same<O, float>::value)      return (float)input / 255.0f;
             }
             if (std::is_same<I, uint16_t>::value) {
                 if (std::is_same<O, uint8_t>::value)    return (uint8_t)((uint16_t)input >> 8);
                 if (std::is_same<O, uint32_t>::value)   return (uint32_t)input * 65537;
-                if (std::is_same<O, float>::value)      return (float)input / 65535;
+                if (std::is_same<O, float>::value)      return (float)input / 65535.0f;
             }
             if (std::is_same<I, uint32_t>::value) {
                 if (std::is_same<O, uint8_t>::value)    return (uint8_t)((uint32_t)input >> 24);
                 if (std::is_same<O, uint16_t>::value)   return (uint16_t)((uint32_t)input >> 16);
-                if (std::is_same<O, float>::value)      return (float)input / 4294967295;
+                if (std::is_same<O, float>::value)      return (float)input / 4294967295.0f;
             }
             if (std::is_same<I, float>::value) {
-                if (std::is_same<O, uint8_t>::value)    return (O)(input * 255);
-                if (std::is_same<O, uint16_t>::value)   return (O)(input * 65535);
-                if (std::is_same<O, uint32_t>::value)   return (O)(input * 4294967295);
+                float val = input > 0.0f ? (input < 1.0f ? input : 1.0f) : 0.0f;
+                if (std::is_same<O, uint8_t>::value)    return (O)((double)val * 255);
+                if (std::is_same<O, uint16_t>::value)   return (O)((double)val * 65535);
+                if (std::is_same<O, uint32_t>::value)   return (O)((double)val * 4294967295);
             }
 
             throw std::invalid_argument("Unsupported types. Bitmap only supports U8, U16, U32 and F32 types");

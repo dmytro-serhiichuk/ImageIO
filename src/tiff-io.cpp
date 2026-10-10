@@ -546,7 +546,7 @@ namespace ImageIO {
             static_cast<uint32_t>(icc.size()), icc.data()
         );
 
-        size_t   rowStep = static_cast<size_t>(bitmap.stride);
+        size_t rowStep = static_cast<size_t>(bitmap.stride);
 
         for (uint32_t y = 0; y < bitmap.height; ++y) {
             uint8_t* row = src.buffer + y * rowStep;

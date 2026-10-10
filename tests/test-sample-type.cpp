@@ -1,40 +1,66 @@
 #include <gtest/gtest.h>
 #include <ImageIO/image-io.h>
 
-class SampleTypeConversationTest : public ::testing::Test {
-protected:
-    void SetUp() override { 
-        bitmap = ImageIO::open(IMAGEIO_TEST_DATA_DIR "/test-png-image.png");
-        index = 7 * ImageIO::getSamplesPerPixel(bitmap.colorModel);
-        val8 = bitmap.buffer[index];
-    }
-    void TearDown() override {}
 
-    ImageIO::Bitmap bitmap {};
-    size_t index;
-    uint8_t val8;
-};
+TEST(SampleTypeConversion, U8ToU16) {
+    uint8_t* src = new uint8_t[3] { 0, 127, 255 };
+    auto u8 = ImageIO::Bitmap(
+        3, 1, src, ImageIO::SampleType::U8, 
+        ImageIO::ColorModel::GRAY, ImageIO::ColorProfile::Gray()
+    );
 
-TEST_F(SampleTypeConversationTest, U8ToU16Conversation) {
-    auto bitmap2 = bitmap.convertSampleType(ImageIO::SampleType::U16);
-    auto bitmap2Buffer = (uint16_t*)bitmap2.buffer;
-    uint16_t val16 = bitmap2Buffer[index];
+    auto u16 = u8.convertSampleType(ImageIO::SampleType::U16);
+    auto res = (uint16_t*)u16.buffer;
 
-    ASSERT_EQ(val16 >> 8, val8);
+    EXPECT_EQ(res[0], 0);
+    EXPECT_EQ(res[1], 32639);
+    EXPECT_EQ(res[2], 65535);
 }
 
-TEST_F(SampleTypeConversationTest, U8ToU32Conversation) {
-    auto bitmap2 = bitmap.convertSampleType(ImageIO::SampleType::U32);
-    auto bitmap2Buffer = (uint32_t*)bitmap2.buffer;
-    uint32_t val32 = bitmap2Buffer[index];
+TEST(SampleTypeConversion, U8ToU32) {
+    uint8_t* src = new uint8_t[3] { 0, 127, 255 };
+    auto u8 = ImageIO::Bitmap(
+        3u, 1u, src, ImageIO::SampleType::U8, 
+        ImageIO::ColorModel::GRAY, ImageIO::ColorProfile::Gray()
+    );
 
-    ASSERT_EQ(val32 >> 24, val8);
+    auto u32 = u8.convertSampleType(ImageIO::SampleType::U32);
+    auto res = (uint32_t*)u32.buffer;
+
+    EXPECT_EQ(res[0], 0u);
+    EXPECT_EQ(res[1], 2139062143u);
+    EXPECT_EQ(res[2], 4294967295u);
 }
 
-TEST_F(SampleTypeConversationTest, U8ToF32Conversation) {
-    auto bitmap2 = bitmap.convertSampleType(ImageIO::SampleType::F32);
-    auto bitmap2Buffer = (float*)bitmap2.buffer;
-    float valF = bitmap2Buffer[index];
+TEST(SampleTypeConversion, U32ToU8) {
+    uint32_t* src = new uint32_t[3] { 0u, 2139062143u, 4294967295u };
+    auto u32 = ImageIO::Bitmap(
+        3u, 1u, src, ImageIO::SampleType::U32, 
+        ImageIO::ColorModel::GRAY, ImageIO::ColorProfile::Gray()
+    );
 
-    ASSERT_EQ(valF, static_cast<float>(val8) / 255.0F);
+    auto u8 = u32.convertSampleType(ImageIO::SampleType::U8);
+    auto res = (uint8_t*)u8.buffer;
+
+    EXPECT_EQ(res[0], 0);
+    EXPECT_EQ(res[1], 127);
+    EXPECT_EQ(res[2], 255);
+}
+
+TEST(SampleTypeConversion, F32ToU32) {
+    float* src = new float[6] { 0.0f, 0.5f, 1.0f, -1.0f, 2.0f, std::numeric_limits<float>::quiet_NaN() };
+    auto f32 = ImageIO::Bitmap(
+        6u, 1u, src, ImageIO::SampleType::F32, 
+        ImageIO::ColorModel::GRAY, ImageIO::ColorProfile::Gray()
+    );
+
+    auto u32 = f32.convertSampleType(ImageIO::SampleType::U32);
+    auto res = (uint32_t*)u32.buffer;
+
+    EXPECT_EQ(res[0], 0u);
+    EXPECT_EQ(res[1], 2147483647u);
+    EXPECT_EQ(res[2], 4294967295u);
+    EXPECT_EQ(res[3], 0u);
+    EXPECT_EQ(res[4], 4294967295u);
+    EXPECT_EQ(res[5], 0u);
 }
